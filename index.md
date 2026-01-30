@@ -12,7 +12,7 @@ VaultKit prevents credential sprawl and enforces data access policies across dat
 - [Main Overview](overview.md) - Complete introduction to VaultKit and FUNL
 - [Quick Start Guide](overview.md#-getting-started) - Get up and running in 5 minutes
 - [Installation](overview.md#installation-options) - Detailed installation instructions
-- **[Deployment Guide](DEPLOYMENT.md) - Production deployment instructions**
+- [Deployment Guide](deployment.md) - Production deployment instructions**
 
 ### Core Concepts
 - [Architecture Overview](overview.md#-architecture) - How VaultKit and FUNL work together
@@ -45,7 +45,7 @@ VaultKit prevents credential sprawl and enforces data access policies across dat
 - [Approve/deny requests](cli.md#vkit-approvalapprove)
 
 **For Administrators:**
-- [Deploy VaultKit](DEPLOYMENT.md)
+- [Deploy VaultKit](deployment.md)
 - [Register datasources](cli.md#vkit-datasource-add)
 - [Scan for schema changes](cli.md#vkit-scan)
 - [Deploy policy bundles](cli.md#vkit-policy-deploy)
