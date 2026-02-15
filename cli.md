@@ -797,6 +797,106 @@ vkit policy show <POLICY_ID>
 
 ---
 
+### Policy Lifecycle Commands
+
+#### `vkit policy deploy`
+
+Upload a policy bundle to the control plane.
+```bash
+vkit policy deploy --bundle dist/policy_bundle.json
+```
+
+This creates a new version in `uploaded` state.
+
+**Options:**
+- `--bundle` - Path to bundle file (required)
+- `--org` - Organization identifier (optional)
+
+**Example:**
+```bash
+vkit policy deploy --bundle dist/policy_bundle.json --org acme
+```
+
+---
+
+#### `vkit policy activate`
+
+Activate a specific bundle version.
+```bash
+vkit policy activate --bundle-version v12
+```
+
+**Only one bundle may be active at a time.**
+
+Activation automatically marks the previously active bundle as `superseded`.
+
+**Options:**
+- `--bundle-version` - Version to activate (required)
+- `--org` - Organization identifier (optional)
+- `--force` - Skip confirmation prompt
+
+**Example:**
+```bash
+vkit policy activate --bundle-version v12 --force
+```
+
+---
+
+#### `vkit policy rollback`
+
+Activate a previous version.
+```bash
+vkit policy rollback --to v11
+```
+
+Rollback is equivalent to activating an earlier version.
+
+**Options:**
+- `--to` - Target version (required)
+- `--reason` - Rollback reason (required)
+- `--org` - Organization identifier (optional)
+
+**Example:**
+```bash
+vkit policy rollback --to v11 --reason "v12 had masking issues"
+```
+
+---
+
+#### `vkit policy revoke`
+
+Revoke a deployed policy bundle.
+```bash
+vkit policy revoke \
+  --bundle-version v12 \
+  --reason "Incorrect masking rule exposed sensitive data"
+```
+
+**Revocation:**
+
+- Permanently blocks the bundle
+- Invalidates associated grants
+- Emits an audit event
+
+**Revoked bundles cannot be reactivated.**
+
+**Options:**
+- `--bundle-version` - Version to revoke (required)
+- `--reason` - Revocation reason (required)
+- `--org` - Organization identifier (optional)
+- `--force` - Skip confirmation prompt
+
+**Example:**
+```bash
+vkit policy revoke \
+  --bundle-version v12 \
+  --reason "Critical security flaw in masking logic" \
+  --force
+```
+
+**⚠️ Warning:** This action is irreversible. Use with caution.
+---
+
 ### Audit Commands
 
 #### `vkit audit query`
