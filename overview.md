@@ -117,6 +117,50 @@ FUNL is designed to be lightweight, stateless, and horizontally scalable—makin
 
 ---
 
+## 🔐 Secure Datasource Credential Handling
+
+**Core Principle:** Database credentials are never exposed to end users, AI agents, or client applications.
+
+### Security Guarantees
+
+| Property | Description |
+|----------|-------------|
+| ✅ **Encrypted at Rest** | Credentials encrypted in control plane database |
+| ✅ **In-Memory Decryption Only** | Credentials decrypted only at execution time |
+| ✅ **Single Execution Use** | Credentials passed to FUNL for one query only |
+| ✅ **FUNL Does Not Persist Credentials** | Data plane never caches or stores credentials |
+| ✅ **Never Returned via API** | No credentials in API responses or logs |
+| ✅ **Zero Credential Sprawl** | Users receive signed grants, not passwords |
+
+### Trust Boundary
+
+| Component | Credential Access |
+|-----------|-------------------|
+| VaultKit Control Plane | ✅ Encrypted at rest |
+| FUNL Runtime | ❌ Transient only |
+| Users / AI Agents | ❌ No access |
+| Policy Bundles | ❌ No secrets |
+
+### Execution Lifecycle
+
+1. Admin registers datasource → credentials encrypted
+2. User submits AQL request → no credentials required
+3. Policy Engine issues signed grant
+4. Control plane decrypts credentials in-memory
+5. Credentials passed to FUNL for single execution
+6. FUNL executes query and closes connection
+7. Credentials discarded from memory
+
+**FUNL never persists, caches, or independently manages credentials.**
+
+### Credential Storage
+
+VaultKit currently uses **built-in encrypted storage** with AES-256-GCM encryption. Credentials are encrypted before being stored in the control plane database and are only decrypted in-memory at query execution time.
+
+**Roadmap:** Future releases will support HashiCorp Vault and AWS Secrets Manager for external secret management.
+
+---
+
 ## 📋 Schema Discovery & Policy Management
 
 VaultKit's approach to schema evolution is designed for **security, auditability, and safe change management**.
