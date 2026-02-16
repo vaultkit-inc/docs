@@ -12,6 +12,41 @@
 
 ---
 
+## 🔐 Security Guarantees
+
+VaultKit is built with zero-trust governance and tamper-proof enforcement at its core. It ensures that:
+
+* **Grants carry cryptographically signed runtime constraints** — every token includes a checksum over the policy bundle and authorization context.
+* **Policy bundles are pinned to grants** — if a bundle changes, previous grants are no longer valid.
+* **Runtime constraints cannot be tampered with** — policy constraints in the grant token are authenticated via digest.
+* **Revocation kill switches exist** for both individual grants and entire policy bundles, enabling emergency governance control.
+
+These characteristics go beyond traditional RBAC/ABAC systems and enable compliance-grade data access control.
+
+---
+
+## 🔑 Cryptographically Signed Grants
+
+VaultKit issues short-lived, cryptographically signed access tokens (JWT) that embed:
+
+* **Policy bundle checksum** — Pins grant to exact policy version
+* **Runtime constraints** — TTL, requester identity, datasource, allowed operations
+* **Grant identifiers** — Unique ID for audit trails and revocation
+* **Authorization context** — Role, clearance level, region, environment
+
+### Dual-Layer Verification
+
+Tokens are verified at both **control plane** (VaultKit) and **execution plane** (FUNL), ensuring:
+
+✅ **No policy tampering** — Bundle checksum enforced  
+✅ **No grant reuse across orgs or bundles** — Org ID and bundle checksum embedded  
+✅ **Detection of forged or replayed tokens** — RSA signature + grant ID tracking  
+✅ **Time-bound access** — TTL enforced at both verification points  
+
+This enables **credential-less execution** — users and AI agents never handle database passwords, only time-bound, cryptographically-signed authorization tokens.
+
+---
+
 ## 🎯 What is VaultKit?
 
 VaultKit provides enterprise-grade governance and security for data access, enabling applications, engineers, and AI agents to query multiple data sources through a unified, policy-controlled interface.
@@ -298,25 +333,77 @@ This ensures:
 
 ---
 
-## 🚨 Bundle Revocation (Kill Switch)
+## 🚨 Revocation System (Kill Switch)
 
-Revocation is a governance safety mechanism.
+VaultKit supports precise and enterprise-grade revocation for misuse detection, governance incidents, or policy errors. The revocation system operates at multiple levels to provide fine-grained control over access termination.
 
-**When a bundle is revoked:**
+### Revocation Levels
 
-- Existing grants referencing that bundle fail
-- New requests referencing that bundle are denied
-- The bundle cannot be re-activated
-- An audit event is emitted: `policy_bundle.revoked`
+**Grant Revocation** — Invalidate a specific grant before its TTL expires.
+* Use case: Individual user's token compromised or misused
+* Scope: Single access grant
+* Impact: Only affects the specific grant ID
+* Recovery: User can request new grant under current policies
 
-Revocation is **checksum-based**, meaning even if the same version number is reused, the exact artifact cannot be reactivated.
+**Bundle Revocation** — Prevent any access derived from a compromised or incorrect policy bundle.
+* Use case: Policy bundle contains security flaw or incorrect rules
+* Scope: All grants issued under that bundle version
+* Impact: Every grant referencing the bundle checksum is immediately invalid
+* Recovery: Requires activating a different bundle version
 
-> **⚠️ Important**
+### How Revocation Works
+
+Revocations are stored and evaluated at runtime. The policy engine checks both grant-level and bundle-level revocation lists before authorizing any data access:
+
+1. **Grant validation** — Check if the specific grant ID is revoked
+2. **Bundle validation** — Check if the bundle checksum is revoked
+3. **TTL validation** — Check if the grant has expired
+4. **Context validation** — Verify authorization context matches runtime state
+
+If any validation fails, access is immediately denied and an audit event is generated.
+
+### CLI Commands
+```bash
+# Revoke a specific grant
+vkit grant revoke --grant-id grant_abc123xyz \
+  --reason "Suspicious access pattern detected"
+
+# Revoke an entire policy bundle
+vkit policy revoke --bundle-checksum sha256:abc123... \
+  --reason "Critical policy error - emergency rollback required"
+
+# List all active revocations
+vkit revocation list --type grant
+vkit revocation list --type bundle
+
+# View revocation audit trail
+vkit audit query --event-type revocation
+```
+
+### Compliance & Security Impact
+
+This capability is crucial for meeting compliance standards:
+
+* **SOC2** — Demonstrates immediate access termination capability
+* **HIPAA** — Enables emergency PHI access revocation
+* **ISO 27001** — Supports incident response procedures
+* **Internal security policies** — Provides kill switch for security incidents
+
+### Important Considerations
+
+> **⚠️ Revocation vs. Rollback**
 >
-> Revocation does NOT automatically rollback to a previous bundle.
-> Activation must be an explicit administrative action.
->
-> This prevents unintended policy regressions and ensures human-controlled governance transitions.
+> Revoking a bundle does NOT automatically activate a previous bundle.
+> This is intentional — activation must be an explicit administrative action
+> to prevent unintended policy regressions.
+
+**Best Practices:**
+
+* Document revocation reasons in audit metadata
+* Have rollback bundle ready before revoking
+* Test bundle activation in staging first
+* Monitor for denied access after revocation
+* Communicate revocations to affected teams
 
 ---
 
