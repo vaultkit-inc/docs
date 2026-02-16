@@ -206,6 +206,98 @@ uploaded → active → superseded → revoked
 
 ---
 
+## Policy Packs
+
+VaultKit ships with curated **Policy Packs** — versioned, layered collections of production-ready governance rules.
+
+Policy Packs allow organizations to bootstrap secure defaults without writing every policy from scratch.
+
+### Why Policy Packs Exist
+
+Writing secure governance policies from scratch is difficult and error-prone.
+
+VaultKit Policy Packs provide:
+
+* Secure defaults
+* Versioned policy collections
+* Upgradeable governance rules
+* Domain-specific policy templates (AI safety, financial compliance, etc.)
+* Dependency-aware layering
+
+### Built-in Packs
+
+| Pack | Purpose |
+| --- | --- |
+| `starter` | Secure default baseline (masking, cross-region protection, approval rules) |
+| `ai_safety` | AI/LLM-safe data exposure controls |
+| `financial_compliance` | Financial data approval + production restrictions |
+
+### Pack Layering Model
+
+Packs are layered to enforce deterministic policy priority.
+
+| Layer | Purpose |
+| --- | --- |
+| `foundation` | Core safety rules |
+| `domain` | Domain-specific governance |
+| `custom` | Organization-defined policies |
+
+Lower layers enforce baseline security. Higher layers refine behavior.
+
+### Dependency System
+
+Packs may depend on other packs.
+
+**Example:**
+```
+financial_compliance
+    ↳ depends on: starter
+```
+
+VaultKit enforces dependency installation order.
+
+### Drift Detection
+
+VaultKit tracks:
+
+* Installed pack version
+* Pack checksum
+* Policy file ownership
+* Policy priority bands
+
+If the CLI ships a newer version of a pack, VaultKit detects:
+```
+⚠ starter (installed v1.0.0, available v1.1.0)
+```
+
+This enables safe upgrades without silent behavior changes.
+
+### Installed Pack Metadata in Bundle
+
+When compiling a policy bundle, VaultKit embeds:
+```json
+"installed_packs": [
+  { "name": "starter", "version": "1.0.0" }
+]
+```
+
+This ensures:
+
+* Bundle reproducibility
+* Compliance traceability
+* Governance audits
+* Safe revocation & rollback
+
+### Pack Safety Guarantees
+
+* Pack-installed files are namespaced.
+* Non-pack files cannot be overwritten accidentally.
+* Upgrades require explicit intent.
+* Force flag required for destructive overwrite.
+* Dry-run available for preview.
+
+---
+
 ## 🚨 Bundle Revocation (Kill Switch)
 
 Revocation is a governance safety mechanism.

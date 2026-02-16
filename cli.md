@@ -797,6 +797,130 @@ vkit policy show <POLICY_ID>
 
 ---
 
+## Policy Pack Commands
+
+### Initialize With Packs
+```bash
+vkit init --with starter
+```
+
+If no packs specified:
+```
+ℹ️  No packs specified. Use --with starter for secure defaults.
+```
+
+### Pack Commands
+
+**List Packs**
+```bash
+vkit policy pack list
+```
+
+Output:
+```
+✓ starter v1.0.0
+⚠ ai_safety (installed v1.0.0, available v1.1.0)
+  financial_compliance (not installed)
+```
+
+**Install Pack**
+```bash
+vkit policy pack add starter
+```
+
+**Remove Pack**
+```bash
+vkit policy pack remove starter
+```
+
+**Upgrade Pack**
+```bash
+vkit policy pack upgrade starter
+```
+
+Upgrade all:
+```bash
+vkit policy pack upgrade
+```
+
+### Upgrade Safety
+
+**`--dry-run`**
+
+Preview upgrade:
+```bash
+vkit policy pack upgrade starter --dry-run
+```
+
+Shows what would change without modifying files.
+
+**`--force`**
+
+Overwrite existing pack-installed files:
+```bash
+vkit policy pack upgrade starter --force
+```
+
+⚠ Will overwrite pack-managed policy files.
+
+### How Packs Install Files
+
+Installed files are written to:
+```
+config/policies/
+```
+
+Using deterministic names:
+```
+starter__01__mask_pii.yaml
+starter__02__cross_region.yaml
+```
+
+This ensures:
+
+* File ownership tracking
+* Safe removal
+* Deterministic upgrades
+
+### Pack State File
+
+VaultKit tracks installed packs in:
+```
+.vkit/packs.yaml
+```
+
+Example:
+```yaml
+format_version: v1
+installed_packs:
+  starter:
+    version: "1.0.0"
+    layer: foundation
+    installed_at: "2026-02-15T15:00:00Z"
+    pack_checksum: "abc123..."
+    files:
+      - path: config/policies/starter__01__mask_pii.yaml
+        policy_id: mask_pii
+```
+
+This enables:
+
+* Drift detection
+* Safe removal
+* Controlled upgrade
+* Bundle reproducibility
+
+### Recommended Workflow
+```bash
+vkit init --with starter
+vkit policy pack add ai_safety
+vkit scan production_db --apply
+vkit policy bundle
+vkit policy deploy
+```
+
+---
+
 ### Policy Lifecycle Commands
 
 #### `vkit policy deploy`

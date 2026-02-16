@@ -18,42 +18,41 @@ Below is the full reference schema.
 ## VaultKit Policy Schema (YAML)
 
 ```yaml
-id: <string>                       # REQUIRED — unique policy ID
-description: <string>              # REQUIRED — clear explanation of rule
+id: <string>                # REQUIRED — unique identifier
+description: <string>       # REQUIRED — human-readable explanation
 
-match:                             # OPTIONAL — define when this policy applies
-  dataset: <dataset_name>          # e.g., customers, orders, payments
-  fields:                          # OPTIONAL — field-level sensitivity logic
-    sensitivity: <tag>             # e.g., pii, financial, internal, secret
-    contains: [<tag>, <tag>]       # triggers if query includes all listed tags
-    any: [field1, field2]          # triggers if ANY of these fields appear
-    all: [field1, field2]          # triggers only if ALL appear
+priority: <integer>         # OPTIONAL — higher evaluated first
 
-  context:                         # OPTIONAL — identity + environment constraints
-    requester_role: <role>         # e.g., analyst, engineer, admin
-    requester_clearance: <string>  # e.g., low, high, confidential
-    requester_region: <region>     # e.g., US, EU, CA
-    dataset_region: <region>       # e.g., US, EU
-    environment: <env>             # production | staging | dev
+match:                      # OPTIONAL — data matching rules
+  dataset: <dataset_name>   # OPTIONAL
+  fields:                   # OPTIONAL
+    sensitivity: <tag>
+    category: <tag>
+    contains: [<tag>]
+    any: [field1, field2]
+    all: [field1, field2]
 
-    time:                          # OPTIONAL — time window constraint
-      after:  "HH:MM"              # 24h local to timezone
-      before: "HH:MM"
-      timezone: "America/New_York" # OPTIONAL (defaults to UTC)
+context:                    # OPTIONAL — identity & environment constraints
+  requester_role: <role>
+  requester_clearance: <string>
+  requester_region: <region>
+  dataset_region: <region>
+  environment: <env>
 
-action:                            # REQUIRED — outcome VaultKit enforces
-  deny: true | false               # Access fully blocked
+  time:
+    after: "HH:MM"
+    before: "HH:MM"
+    timezone: "UTC"
 
-  require_approval: true | false   # Place request in approval queue
-  approver_role: <role>            # Required if require_approval == true
+action:                     # REQUIRED — exactly ONE must be true
+  deny: true
+  require_approval: true
+  mask: true
+  allow: true
 
-  mask: true | false               # Apply field masking (uses registry metadata)
-  mask_strategy: strict | soft     # OPTIONAL: advanced masking modes
-
-  allow: true | false              # Explicit allow (if no higher-priority rule)
-
-  ttl: "1h"                        # OPTIONAL — grant duration (applies for allow/mask)
-  reason: <string>                 # REQUIRED for deny / require_approval
+  approver_role: <role>     # REQUIRED if require_approval
+  reason: <string>          # REQUIRED for deny / require_approval
+  ttl: "1h"                 # OPTIONAL — grant duration
 ```
 
 ---
