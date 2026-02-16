@@ -18,7 +18,7 @@ VaultKit prevents credential sprawl and enforces data access policies across dat
 - [Architecture Overview](overview.md#-architecture) - How VaultKit and FUNL work together
 - [AQL Syntax & Specification](aql_specification.md) - Abstract Query Language reference
 - [Policy Schema Reference](policy_guide.md) - Policy configuration guide
-- [Policy Pack System](PACK_SYSTEM.md) - Versioned governance distribution
+- [Policy Pack System](pack_system.md) - Versioned governance distribution
 
 ### CLI Reference
 - [VaultKit CLI (`vkit`)](cli.md) - Complete command-line reference
