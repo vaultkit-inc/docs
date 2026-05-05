@@ -8,7 +8,7 @@
 
 > VaultKit is the policy layer between your production databases and anyone or anything that queries them — AI agents, engineers, and automated systems. Field-level masking, approval workflows, signed grants, and audit trails — without exposing raw credentials.
 
-In 2025, an AI agent at PocketOS deleted an entire production database in nine seconds — backups included. The pattern is the same across incidents: agents and automated systems with raw database credentials and no policy enforcement layer. VaultKit fixes that.
+In 2026, an AI agent at PocketOS deleted an entire production database in nine seconds — backups included. The pattern is the same across incidents: agents and automated systems with raw database credentials and no policy enforcement layer. VaultKit fixes that.
 
 ---
 
