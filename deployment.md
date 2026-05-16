@@ -5,10 +5,10 @@ VaultKit is designed to be **easy to deploy for design partners**, while remaini
 
 VaultKit consists of four main components:
 
-* **Control Plane** – Rails API (auth, orgs, policies, approvals)
-* **Funl Runtime** – Policy execution & query enforcement
-* **Console** – React web UI (served via nginx)
-* **Postgres** – Metadata and application state
+* **Control Plane** — Governs every data request: authentication, policy evaluation, approvals, and audit logging
+* **FUNL Runtime** — Data plane and execution engine: translates queries into native SQL, applies field-level masking, and executes against your datasources
+* **Console** — React web UI served via nginx
+* **Postgres** — Metadata and application state
 
 ---
 
@@ -28,7 +28,7 @@ Best for:
 Example:
 
 ```
-https://alpha.vaultkit.io
+https://vaultkit.yourdomain.com
 ```
 
 In this mode:
@@ -76,33 +76,13 @@ In this mode:
 
 ---
 
-## Directory Structure
-
-VaultKit ships with a deployment layout under `deploy/`:
-
-```
-deploy/
-  alpha/
-    docker-compose.yml
-    .env.example
-    install.sh
-    secrets/
-      keys/
-        vkit_priv.pem
-        vkit_pub.pem
-```
-
-All deployment steps happen inside `deploy/alpha`.
-
----
-
 ## Quick Start (Single-Domain)
 
-### 1. Clone the Repository
+### 1. Clone the Deployment Repository
 
 ```bash
-git clone https://github.com/vaultkit-inc/vaultkit.git
-cd vaultkit/deploy/alpha
+git clone https://github.com/vaultkit-inc/deploy.git
+cd deploy
 ```
 
 ---
@@ -110,7 +90,7 @@ cd vaultkit/deploy/alpha
 ### 2. Run the Installer
 
 ```bash
-./install.sh
+./scripts/install.sh
 ```
 
 This does the following:
@@ -134,11 +114,11 @@ Edit `.env` and set at least:
 
 Example (single-domain):
 
-```
+```env
 RAILS_ENV=production
 
-APP_HOST=https://alpha.vaultkit.io
-FRONTEND_BASE_URL=https://alpha.vaultkit.io
+APP_HOST=https://vaultkit.yourdomain.com
+FRONTEND_BASE_URL=https://vaultkit.yourdomain.com
 
 DATABASE_URL=postgres://vaultkit:<password>@postgres:5432/vaultkit
 
@@ -171,13 +151,13 @@ All containers should be running.
 * Console UI:
 
   ```
-  https://alpha.vaultkit.io
+  https://vaultkit.yourdomain.com
   ```
 
 * Health check:
 
   ```
-  https://alpha.vaultkit.io/up
+  https://vaultkit.yourdomain.com/up
   ```
 
 ---
@@ -220,7 +200,7 @@ api.acme.com → Control Plane
 
 1. Update `.env`:
 
-```
+```env
 APP_HOST=https://api.acme.com
 FRONTEND_BASE_URL=https://app.acme.com
 ```
@@ -230,8 +210,7 @@ FRONTEND_BASE_URL=https://app.acme.com
 * `/` → Console container
 * Backend traffic → Control Plane container
 
-3. Console nginx runs in **static-only mode**
-   (no API proxying required)
+3. Console nginx runs in **static-only mode** (no API proxying required)
 
 VaultKit images remain unchanged.
 
@@ -309,9 +288,9 @@ After deployment:
 
 If you are a design partner and need help:
 
-* Open an issue
-* Contact the VaultKit team directly
+* Email: founders@vaultkit.io
 * Share logs from `docker compose logs`
+* Documentation: [docs.vaultkit.io](https://docs.vaultkit.io)
 
 ---
 
