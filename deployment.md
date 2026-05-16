@@ -3,6 +3,8 @@
 This document explains how to deploy VaultKit in production and production-like environments.
 VaultKit is designed to be **easy to deploy for design partners**, while remaining flexible enough for advanced infrastructure setups.
 
+**Deploy:** [github.com/vaultkit-inc/deploy](https://github.com/vaultkit-inc/deploy)
+
 VaultKit consists of four main components:
 
 * **Control Plane** — Governs every data request: authentication, policy evaluation, approvals, and audit logging
