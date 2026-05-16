@@ -7,8 +7,28 @@ VaultKit consists of four main components:
 
 * **Control Plane** — Governs every data request: authentication, policy evaluation, approvals, and audit logging
 * **FUNL Runtime** — Data plane and execution engine: translates queries into native SQL, applies field-level masking, and executes against your datasources
-* **Console** — React web UI served via nginx
+* **Console** — React web UI with a built-in nginx that serves the frontend and proxies API traffic to the Control Plane
 * **Postgres** — Metadata and application state
+
+---
+
+## How It Works
+
+VaultKit uses a **single entry point** for both the frontend and backend.
+
+The Console container runs nginx internally. nginx serves the React app and automatically proxies all API and auth requests to the Control Plane over Docker's internal network. This means:
+
+* You access **one URL** for everything
+* The Control Plane is never exposed directly to the outside world
+* No external reverse proxy is required for evaluation
+
+```
+Browser → Console:5173 → nginx (inside console container)
+                              ├── /api/*         → Control Plane:3000
+                              ├── /auth/oidc/*   → Control Plane:3000
+                              ├── /auth/cli/*    → Control Plane:3000
+                              └── /*             → React app
+```
 
 ---
 
@@ -25,17 +45,7 @@ Best for:
 * Fast evaluation
 * Minimal infrastructure
 
-Example:
-
-```
-https://vaultkit.yourdomain.com
-```
-
-In this mode:
-
-* One domain serves **both frontend and backend**
-* The Console's nginx proxies API and auth routes to the Control Plane
-* No external reverse proxy is required (Cloudflare / ALB optional)
+One URL serves everything — nginx inside the Console handles routing. No external reverse proxy required.
 
 This is the **recommended starting point**.
 
@@ -52,17 +62,11 @@ Best for:
 Example:
 
 ```
-https://app.acme.com   → Console (frontend)
+https://app.acme.com   → Console (frontend + nginx proxy)
 https://api.acme.com   → Control Plane (backend)
 ```
 
-In this mode:
-
-* Customer infrastructure (Cloudflare, ALB, NGINX Ingress, etc.) handles routing
-* Console nginx serves static assets only
-* Backend is exposed separately
-
-**No VaultKit images need to be rebuilt** — only routing changes.
+**No VaultKit images need to be rebuilt** — only routing and `.env` changes.
 
 ---
 
@@ -70,13 +74,13 @@ In this mode:
 
 * Docker 24+
 * Docker Compose v2
-* A Linux host (VM, EC2, bare metal)
-* A domain name (recommended)
-* Optional: Cloudflare or another reverse proxy
+* A Linux host (VM, EC2, bare metal, or local machine)
+* Optional: A domain name
+* Optional: Cloudflare or Let's Encrypt for TLS (required for custom domain with HTTPS)
 
 ---
 
-## Quick Start (Single-Domain)
+## Quick Start
 
 ### 1. Clone the Deployment Repository
 
@@ -95,24 +99,58 @@ cd deploy
 
 This does the following:
 
-* Verifies Docker and Docker Compose
-* Copies `.env.example` → `.env` (if missing)
-* Generates signing keys (`vkit_priv.pem`, `vkit_pub.pem`)
-
-If `.env` is newly created, the script will stop and ask you to edit it.
+* Verifies Docker and Docker Compose are installed and running
+* Copies `.env.example` → `.env`
+* Generates RSA signing keys (`vkit_priv.pem`, `vkit_pub.pem`)
+* Displays your machine's IP address for reference
 
 ---
 
 ### 3. Configure `.env`
 
-Edit `.env` and set at least:
+Edit `.env` and set `APP_HOST` and `FRONTEND_BASE_URL` to wherever VaultKit will be accessed from. Pick the option that matches your setup:
 
-* `POSTGRES_PASSWORD`
-* `APP_HOST`
-* `FRONTEND_BASE_URL`
-* OIDC settings (if using SSO)
+---
 
-Example (single-domain):
+**Option A — Local machine**
+
+```env
+RAILS_ENV=production
+
+APP_HOST=http://localhost:5173
+FRONTEND_BASE_URL=http://localhost:5173
+
+DATABASE_URL=postgres://vaultkit:<password>@postgres:5432/vaultkit
+FUNL_URL=http://funl-runtime:8080
+VKIT_PRIVATE_KEY=/secrets/keys/vkit_priv.pem
+VKIT_PUBLIC_KEY=/secrets/keys/vkit_pub.pem
+```
+
+---
+
+**Option B — Remote VM or EC2 (no domain)**
+
+```env
+RAILS_ENV=production
+
+APP_HOST=http://54.123.45.67:5173
+FRONTEND_BASE_URL=http://54.123.45.67:5173
+
+DATABASE_URL=postgres://vaultkit:<password>@postgres:5432/vaultkit
+FUNL_URL=http://funl-runtime:8080
+VKIT_PRIVATE_KEY=/secrets/keys/vkit_priv.pem
+VKIT_PUBLIC_KEY=/secrets/keys/vkit_pub.pem
+```
+
+Replace `54.123.45.67` with your server's public IP. To find it:
+
+```bash
+curl ifconfig.me
+```
+
+---
+
+**Option C — Custom domain**
 
 ```env
 RAILS_ENV=production
@@ -121,12 +159,16 @@ APP_HOST=https://vaultkit.yourdomain.com
 FRONTEND_BASE_URL=https://vaultkit.yourdomain.com
 
 DATABASE_URL=postgres://vaultkit:<password>@postgres:5432/vaultkit
-
 FUNL_URL=http://funl-runtime:8080
-
 VKIT_PRIVATE_KEY=/secrets/keys/vkit_priv.pem
 VKIT_PUBLIC_KEY=/secrets/keys/vkit_pub.pem
 ```
+
+> For Option C, point your domain's A record to your server's IP address and configure TLS via Cloudflare or Let's Encrypt before starting VaultKit.
+
+---
+
+> **Note:** Both `APP_HOST` and `FRONTEND_BASE_URL` always point to the same URL because nginx inside the Console unifies frontend and backend behind a single entry point.
 
 ---
 
@@ -142,23 +184,37 @@ Verify services:
 docker compose ps
 ```
 
-All containers should be running.
+All four containers should be running:
+
+| Container | Port | Purpose |
+|---|---|---|
+| vaultkit-console | 5173 | Frontend + nginx proxy — your entry point |
+| vaultkit-control-plane | 3000 | Backend API (internal only) |
+| vaultkit-funl | 8080 | Query execution engine (internal only) |
+| vaultkit-db | — | Postgres (internal only) |
 
 ---
 
 ### 5. Access VaultKit
 
-* Console UI:
+Open your browser at whichever URL you configured:
 
-  ```
-  https://vaultkit.yourdomain.com
-  ```
+```
+# Option A
+http://localhost:5173
 
-* Health check:
+# Option B
+http://54.123.45.67:5173
 
-  ```
-  https://vaultkit.yourdomain.com/up
-  ```
+# Option C
+https://vaultkit.yourdomain.com
+```
+
+Health check:
+
+```
+<your-url>/up
+```
 
 ---
 
@@ -166,35 +222,19 @@ All containers should be running.
 
 VaultKit supports OIDC providers such as Okta, Auth0, Azure AD, and others.
 
-For browser-based login:
+For browser-based login the redirect URI **must be**:
 
-* Redirect URI **must be**:
+```
+<your-url>/auth/oidc/callback
+```
 
-  ```
-  https://<your-domain>/auth/oidc/callback
-  ```
-
-VaultKit intentionally redirects **back to the frontend** after successful authentication.
-The frontend then exchanges the session with the backend.
-
-This design allows:
-
-* SPA-first UX
-* Flexible domain layouts
-* Clean separation of concerns
+> Most OIDC providers require HTTPS for redirect URIs. For local evaluation without OIDC, skip this step and use token-based access instead.
 
 ---
 
 ## Multi-Domain Deployment
 
 If you want separate frontend and backend domains:
-
-### Example
-
-```
-app.acme.com → Console
-api.acme.com → Control Plane
-```
 
 ### Required Changes
 
@@ -205,12 +245,10 @@ APP_HOST=https://api.acme.com
 FRONTEND_BASE_URL=https://app.acme.com
 ```
 
-2. Configure your reverse proxy / ingress to route:
+2. Configure your reverse proxy to route:
 
-* `/` → Console container
-* Backend traffic → Control Plane container
-
-3. Console nginx runs in **static-only mode** (no API proxying required)
+* `app.acme.com` → Console container (port 5173)
+* `api.acme.com` → Control Plane container (port 3000)
 
 VaultKit images remain unchanged.
 
@@ -224,11 +262,8 @@ If you already have Postgres:
 
 * Remove the `postgres` service from `docker-compose.yml`
 * Point `DATABASE_URL` to your existing database
-* Ensure network access is allowed
 
-Example:
-
-```
+```env
 DATABASE_URL=postgres://vaultkit:<password>@db.acme.internal:5432/vaultkit
 ```
 
@@ -236,16 +271,14 @@ DATABASE_URL=postgres://vaultkit:<password>@db.acme.internal:5432/vaultkit
 
 ## Secrets & Security Notes
 
-* `.env` **must not** be committed
-* Signing keys are generated locally and mounted read-only
-* Rails secrets (`secret_key_base`, JWT secrets) are read from credentials or env
-* TLS termination is expected to happen **outside** the containers
+* `.env` **must not** be committed to version control
+* Signing keys are generated locally and mounted read-only into containers
+* TLS termination should happen **outside** the containers in production
+* Only port 5173 needs to be publicly accessible — ports 3000 and 8080 are internal only
 
 ---
 
 ## Updating VaultKit
-
-To update to a new version:
 
 ```bash
 docker compose pull
@@ -260,15 +293,20 @@ Database migrations run automatically on container startup.
 
 ### Containers start but UI shows 502
 
-* Verify reverse proxy routing
 * Check `docker compose logs console`
-* Confirm backend is reachable from console container
+* Confirm the control-plane container is running: `docker compose ps`
+* Ensure the Console can reach the Control Plane over Docker's internal network
 
 ### OIDC redirect loops or 404s
 
 * Confirm redirect URI matches exactly
-* Ensure `/auth/oidc/callback` is routed to backend
-* Ensure `/auth/callback` is handled by frontend
+* Ensure `/auth/oidc/callback` resolves to the Console URL
+* Ensure `/auth/callback` is handled by the React app
+
+### Cannot access the Console
+
+* Confirm port 5173 is open on your firewall or security group
+* Check `docker compose logs console`
 
 ---
 
@@ -277,7 +315,7 @@ Database migrations run automatically on container startup.
 After deployment:
 
 * Create your first organization
-* Configure OIDC provider
+* Configure OIDC provider (optional for evaluation)
 * Generate agent tokens
 * Register data sources
 * Apply your first policy bundle
