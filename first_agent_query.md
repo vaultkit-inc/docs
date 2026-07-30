@@ -6,7 +6,7 @@ title: Your First Agent Query | docs
 
 You've deployed VaultKit — now what? This page walks through everything between a running deployment and your first policy-governed agent query. Each step links to its full reference page; this page just gives you the order and the minimum commands to get there.
 
-If you haven't deployed yet, start with the [Deployment Guide](./deployment.html).
+If you haven't deployed yet, start with the [Deployment Guide](deployment.md).
 
 ---
 
@@ -22,7 +22,7 @@ Verify it worked:
 vkit whoami
 ```
 
-Full reference: [Authentication](./authentication.html)
+Full reference: [Authentication](cli.md#-authentication)
 
 ---
 
@@ -71,7 +71,7 @@ vkit scan users_db --mode apply
 vkit registry export
 ```
 
-Full reference: [Schema Discovery & Policy Management](./schema-discovery.html)
+Full reference: [Schema Discovery & Policy Management](overview.md#schema-discovery--policy-management)
 
 ---
 
@@ -90,7 +90,7 @@ vkit policy pack list
 vkit policy pack info starter
 ```
 
-Writing your own policies instead of using a pack is covered in the [Policy Schema Reference](./policy-schema.html).
+Writing your own policies instead of using a pack is covered in the [Policy Schema Reference](policy_guide.md).
 
 ---
 
@@ -115,7 +115,7 @@ vkit policy deploy
 
 If you change a policy afterward, you'll need to commit again before re-running `bundle`/`deploy` — the new commit becomes the new fingerprint.
 
-Full reference: [Policy Management](./policy-management.html) · [Policy Pack Commands](./policy-pack-commands.html)
+Full reference: [Policy Management](cli.md#policy-management-commands) · [Policy Pack Commands](cli.md#policy-pack-commands)
 
 ---
 
@@ -205,7 +205,7 @@ vaultkit-mcp
 
 It will sit silently waiting for input — that's correct, it's waiting for an MCP host (Claude Desktop, Cursor, MCP Inspector) to connect, not a hang.
 
-For connecting a host, testing with MCP Inspector, and troubleshooting, see the full [MCP Usage Guide](./mcp-usage.html).
+For connecting a host, testing with MCP Inspector, and troubleshooting, see the full [MCP Usage Guide](mcp_usage.md).
 
 ---
 
@@ -243,7 +243,7 @@ result = client.poll_request(request_id="req_123")
 
 If you're using the tool-based agent pattern from Step 7 instead of direct `client.execute()`, poll with the `vaultkit_check_approval` tool in a loop (with a timeout) rather than calling `poll_request` directly — this lets the agent keep responding instead of blocking. See the approval-wait loop in [`agent_openai_demo.py`](https://github.com/vaultkit-inc/vaultkit-sdk-python/blob/main/examples/agent_openai_demo.py) for the full pattern.
 
-Full reference: [Data Requests](./data-requests.html)
+Full reference: [Data Requests](cli.md#data-request-commands)
 
 ---
 
@@ -265,6 +265,6 @@ vkit grant:revoke --grant <grant-id> --reason "testing complete"
 
 ## What's next
 
-- [Audit Queries](./audit-queries.html) — search and export the audit log for everything you just did
-- [Use Cases](./use-cases.html) — real-world patterns beyond this walkthrough
-- [Security Best Practices](./security-best-practices.html) — key management before going to production
+- [Audit Queries](cli.md#audit-commands) — search and export the audit log for everything you just did
+- [Use Cases](overview.md#use-cases) — real-world patterns beyond this walkthrough
+- [Security Best Practices](overview.md#security-best-practices) — key management before going to production
