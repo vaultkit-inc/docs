@@ -13,6 +13,7 @@ VaultKit prevents credential sprawl and enforces data access policies across dat
 - [Quick Start Guide](overview.md#-getting-started) - Get up and running in 5 minutes
 - [Installation](overview.md#installation-options) - Detailed installation instructions
 - [Deployment Guide](deployment.md) - Production deployment instructions
+- [Your First Agent Query](first_agent_query.md) - From a running deployment to your first policy-governed agent query
 
 ### Core Concepts
 - [Architecture Overview](overview.md#-architecture) - How VaultKit and FUNL work together
@@ -32,6 +33,7 @@ VaultKit prevents credential sprawl and enforces data access policies across dat
 - [Schema Discovery & Policy Management](overview.md#-schema-discovery--policy-management) - Handling schema drift
 - [Security Best Practices](overview.md#-security-best-practices) - Key management and deployment
 - [Use Cases](overview.md#-use-cases) - Real-world examples and patterns
+- [MCP Usage Guide](mcp_usage.md) - Install, run, connect, and test the VaultKit MCP server
 
 ---
 
