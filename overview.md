@@ -428,21 +428,24 @@ AI agents querying production databases inherit whatever permissions the underly
 **VaultKit solution:**
 
 ```yaml
-# policies/ai_agent_restrictions.yaml
+# config/policies/ai_agent_restrictions.yaml
 id: ai_agent_restrictions
+description: Agents see personal data hashed in production.
 match:
   fields:
-    category: pii
+    contains: [pii]
 
 context:
-  requester_role: ai_agent
+  requester_role: agent        # the default role of agent tokens
   environment: production
 
 action:
   mask: true
-  mask_type: hash
   reason: "PII must be hashed for AI agents"
   ttl: "15m"
+
+masking:
+  default_method: hash
 ```
 
 **How it works:**
@@ -451,11 +454,9 @@ action:
 3. Agents can analyze patterns without accessing raw sensitive data
 4. Every query logged with AI agent identity, policy decision, and fields returned
 
-**CLI Usage:**
+**CLI Usage** (with the agent's token, for example from `vkit agents tokens create`):
 ```bash
-vkit request \
-  --datasource production_db \
-  --role ai_agent \
+VKIT_ENDPOINT=https://vaultkit.example.com VKIT_TOKEN="$AGENT_TOKEN" vkit request \
   --aql '{
     "source_table": "customer_behavior",
     "columns": ["user_id", "email", "purchase_amount"],
@@ -484,35 +485,27 @@ Engineers and automated systems should never hold standing access to production 
 **VaultKit solution:**
 
 ```yaml
-# policies/financial_requires_approval.yaml
+# config/policies/financial_requires_approval.yaml
 id: financial_break_glass
+description: A finance manager approves access to financial data in production.
 match:
   fields:
-    category: financial
+    contains: [financial]
 
 context:
   environment: production
-  requester_role: engineer
 
 action:
   require_approval: true
   approver_role: finance_manager
-  approval_metadata_required:
-    - incident_ticket
-    - business_justification
   ttl: "1h"
   reason: "Financial data access requires approval"
-  auto_revoke: true
 ```
 
 **Approval Workflow:**
 ```bash
 # Engineer requests emergency access
 vkit request \
-  --datasource production_db \
-  --approval-required \
-  --reason "Investigating payment failure - Ticket INC-5432" \
-  --metadata '{"incident_ticket": "INC-5432", "business_justification": "Payment processor reporting transaction mismatch"}' \
   --aql '{
     "source_table": "transactions",
     "columns": ["transaction_id", "amount", "status"],
@@ -520,12 +513,11 @@ vkit request \
   }'
 
 # Finance manager approves
-vkit approval grant \
-  --request-id req_20240115_xyz789 \
-  --notes "Approved for incident resolution."
+vkit approval:list
+vkit approval:approve <ID>
 
-# Engineer fetches data
-vkit fetch --grant grant_approved_abc123
+# Engineer runs the same request again and gets the rows
+vkit request --aql '...same query...'
 ```
 
 **Audit Trail Output:**

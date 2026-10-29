@@ -62,15 +62,14 @@ Always create and activate a venv first:
 ```bash
 python3 -m venv vaultkit-env
 source vaultkit-env/bin/activate          # Windows: vaultkit-env\Scripts\activate
-pip install "vaultkit[mcp]"
+pip install "vaultkit[mcp]>=0.3.0"
 ```
 
-> `pip install "vaultkit[mcp]"` only works **once VaultKit is published to
-> PyPI**. Until then, use the Git install below.
+The SDK is published on PyPI. Use 0.3.0 or later: earlier versions can't send
+aggregates, so an agent fetches rows and counts them itself.
 
-**Before PyPI (design partners, private distribution) — install straight from
-Git**, no publishing needed. This is the recommended path during the
-design-partner phase:
+**Alternatively, install straight from Git**, for example to try an unreleased
+change:
 
 ```bash
 python3 -m venv vaultkit-env

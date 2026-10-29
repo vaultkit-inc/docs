@@ -1,6 +1,6 @@
 # VaultKit CLI (`vkit`)
 
-[![Gem Version](https://img.shields.io/badge/gem-v0.1.0-blue.svg)](https://rubygems.org/gems/vaultkitcli)
+[![Gem Version](https://img.shields.io/badge/gem-v1.2.0-blue.svg)](https://rubygems.org/gems/vaultkit)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Ruby Version](https://img.shields.io/badge/ruby-3.1+-CC342D.svg)](https://www.ruby-lang.org)
 
@@ -75,7 +75,7 @@ VaultKit uses a **request → policy → grant → fetch** workflow:
 ### Option 1: Install from RubyGems (Recommended)
 
 ```bash
-gem install vaultkitcli
+gem install vaultkit
 ```
 
 ### Verify Installation
@@ -199,6 +199,31 @@ Clear stored credentials and end session.
 ```bash
 vkit logout
 ```
+
+### Credentials from the environment
+
+`vkit` normally uses the login saved by `vkit login`. Scripts, CI jobs and demos can
+supply credentials for a single command or shell instead, without replacing it:
+
+```bash
+export VKIT_ENDPOINT=https://vaultkit.example.com
+export VKIT_TOKEN=<a VaultKit user token>
+vkit request < query.json
+```
+
+- **Both variables are needed.** Together they replace the saved login for every
+  command except `vkit login` and `vkit logout`.
+- **One alone is an error**, naming the missing variable.
+- **A notice goes to stderr** while the override is active. The token is never printed.
+- **Unset both** to go back to your saved login.
+
+To act as someone else for one command, set the token on that command only:
+
+```bash
+VKIT_TOKEN="$APPROVER_TOKEN" vkit approval:approve 42
+```
+
+Requires vkit 1.1.6 or later.
 
 ---
 
@@ -329,19 +354,18 @@ vkit request --aql <AQL_JSON> [OPTIONS]
 
 **Options:**
 - `--aql` — AQL JSON payload (inline or via STDIN)
-- `--env` — Environment (default: `production`)
-- `--requester_region` — Your geographic region (e.g., `US`, `EU`)
-- `--dataset_region` — Dataset's geographic region
-- `--requester_clearance` — Clearance level: `low`, `high`, `admin`
 - `--format` — Output format: `json`, `table` (default: `table`)
+
+Policies see the requester's role, clearance and region from their account, and the
+environment and dataset region from the datasource. A request can't set them: the
+older `--env`, `--requester_region`, `--dataset_region` and `--requester_clearance`
+options are accepted but ignored. Admins set clearance and region on users (console,
+Team) and agent tokens (see [Agent Tokens](#agent-tokens)).
 
 **Inline AQL:**
 ```bash
 vkit request \
-  --aql '{"source_table":"customers","columns":["email","total_spend"],"limit":100}' \
-  --requester_region EU \
-  --dataset_region EU \
-  --requester_clearance high
+  --aql '{"source_table":"customers","columns":["email","total_spend"],"limit":100}'
 ```
 
 **AQL via STDIN:**
@@ -509,6 +533,44 @@ vkit fetch --grant gr_abc123xyz --format json | jq '.data[] | select(.revenue > 
 
 ---
 
+### Agent Tokens
+
+Agents authenticate with agent tokens instead of a user login. Issuing and revoking
+them is for admins.
+
+#### `vkit agents tokens create`
+
+```bash
+vkit agents tokens create --name <NAME> [OPTIONS]
+```
+
+**Options:**
+- `--name` — Human-readable name (required), e.g. `support-assistant`
+- `--expires-in` — Lifetime, e.g. `1h`, `24h`, `30d`
+- `--tenant` — The tenant this token acts for on tenant-scoped datasets (vkit 1.2.0)
+- `--clearance` — Clearance policies see: `low`, `medium` or `high` (vkit 1.2.0)
+- `--region` — Region policies see: `EU`, `US`, `CA` or `APAC` (vkit 1.2.0)
+
+The secret is shown once. Tenant, clearance and region are fixed when the token is
+issued; the agent can't change them. For an assistant that serves several customers,
+issue a short-lived token per customer session:
+
+```bash
+vkit agents tokens create --name support-assistant --tenant org_42 --expires-in 1h
+```
+
+Every query that token makes on a dataset marked with `tenant_column` is confined to
+`org_42`'s rows. See [Tenant-scoped datasets](policy_guide.md#tenant-scoped-datasets).
+
+#### `vkit agents tokens list` and `revoke`
+
+```bash
+vkit agents tokens list
+vkit agents tokens revoke --token <ID_OR_PREFIX>
+```
+
+---
+
 ### Datasource Management (Admin Only)
 
 #### `vkit datasource add`
@@ -635,14 +697,13 @@ vkit scan <DATASOURCE_ID> [--mode MODE]
 ```
 
 **Options:**
-- `--mode` — Scan mode: `diff`, `apply` (default: `diff`)
-- `--format` — Output format: `json`, `table` (default: `table`)
+- `--mode` — Scan mode: `diff_only`, `apply` (default: `diff_only`)
 
 **Modes:**
 
 | Mode | Description |
 |------|-------------|
-| `diff` | Show changes without applying (safe, read-only) |
+| `diff_only` | Show changes without applying (safe, read-only) |
 | `apply` | Update baseline registry with discovered schema |
 
 **Examples:**
@@ -680,6 +741,29 @@ vkit scan production_pg --mode apply
 #   4. Deploy bundle: vkit policy deploy
 ```
 
+**Labels and suggestions:**
+
+The scan labels each column with a sensitivity (`high`, `medium`, `low` or
+`unknown`) and a category (`pii`, `financial`, `credential`, `internal` or
+`unknown`), from its name, its type and its table. `unknown` means it couldn't place
+a column that could hold anything, such as a `payload` jsonb or `notes` text column:
+review it and give it a real label. The scan reads names and types only, never data.
+
+A rescan keeps labels you've reviewed (from a deployed bundle or a manual edit). Where
+the classifier now disagrees, `vkit scan` (vkit 1.2.0) lists a suggestion instead of
+changing the label:
+
+```
+  api_keys                 ✓
+    ? key_value  low/internal → high/credential (suggested)
+
+  ? = classifier suggestion, not applied. To accept one, edit
+    datasets/registry.yaml and redeploy the bundle.
+```
+
+`unknown` labels, and labels that only came from an earlier scan, are replaced by
+the current classification.
+
 **Scan All Datasources:**
 ```bash
 for ds in $(vkit datasource list --format json | jq -r '.[].id'); do
@@ -701,29 +785,32 @@ vkit policy bundle [OPTIONS]
 ```
 
 **Options:**
-- `--policies_dir` — Path to policies directory (default: `config/policies`)
-- `--registry_dir` — Path to registry files (default: `config`)
-- `--datasources_dir` — Path to datasource configs (default: `config/datasources`)
+- `--policies_dir` — Policies directory (default: `config/policies`)
+- `--registry_dir` — Directory holding `registry.yaml` (default: `datasets`)
 - `--out` — Output bundle file (default: `dist/policy_bundle.json`)
-- `--org` — Organization identifier (optional, defaults to logged-in user's org)
+- `--org` — Organization (defaults to the logged-in user's)
+- `--version` — Bundle version (defaults to the git commit, `git rev-parse HEAD`)
 
 **Example:**
 ```bash
-# Using logged-in user's org
-vkit policy bundle \
-  --policies_dir config/policies \
-  --registry_dir config \
-  --datasources_dir config/datasources \
-  --out dist/policy_bundle.json
-
-# Specifying org explicitly
-vkit policy bundle \
-  --policies_dir config/policies \
-  --registry_dir config \
-  --datasources_dir config/datasources \
-  --out dist/policy_bundle.json \
-  --org acme
+vkit policy bundle
+vkit policy bundle --out dist/policy_bundle.json --org acme
 ```
+
+**Checks:** the bundle is refused, with every problem listed, when a policy can never
+match, or a dataset would leak across tenants (vkit 1.2.0):
+
+- a key the engine ignores, such as `match.fields.category` (use `contains`);
+- a tag or sensitivity no field has and the classifier can't produce;
+- a dataset that isn't in `datasets/registry.yaml`;
+- an invalid environment, region or clearance value, or `time` under top-level
+  `context` (it works under `match.context`);
+- a mask policy with no fields to mask;
+- a `tenant_column` that isn't one of its dataset's fields, or a dataset that has
+  another dataset's tenant column but isn't marked (`tenant_column: false` declares a
+  table every tenant may read).
+
+If the problems are in policies from a pack, `vkit policy pack upgrade` replaces them.
 
 #### `vkit policy validate`
 
@@ -806,7 +893,7 @@ vkit init --with starter
 
 If no packs specified:
 ```
-ℹ️  No packs specified. Use --with starter for secure defaults.
+ℹ️  No packs specified. Installing 'starter' for secure defaults.
 ```
 
 ### Pack Commands
@@ -818,8 +905,8 @@ vkit policy pack list
 
 Output:
 ```
-✓ starter v1.0.0
-⚠ ai_safety (installed v1.0.0, available v1.1.0)
+✓ starter v2.0.0
+⚠ ai_safety (installed v1.1.0, available v2.0.0)
   financial_compliance (not installed)
 ```
 
@@ -872,8 +959,8 @@ config/policies/
 
 Using deterministic names:
 ```
-starter__01__mask_pii.yaml
-starter__02__cross_region.yaml
+starter__01__deny_credentials.yaml
+starter__02__mask_pii_by_default.yaml
 ```
 
 This ensures:
@@ -894,13 +981,13 @@ Example:
 format_version: v1
 installed_packs:
   starter:
-    version: "1.0.0"
-    layer: foundation
+    version: "2.0.0"
+    layer: 10
     installed_at: "2026-02-15T15:00:00Z"
     pack_checksum: "abc123..."
     files:
-      - path: config/policies/starter__01__mask_pii.yaml
-        policy_id: mask_pii
+      - path: config/policies/starter__02__mask_pii_by_default.yaml
+        policy_id: mask_pii_by_default
 ```
 
 This enables:
@@ -914,7 +1001,7 @@ This enables:
 ```bash
 vkit init --with starter
 vkit policy pack add ai_safety
-vkit scan production_db --apply
+vkit scan production_db --mode apply
 vkit policy bundle
 vkit policy deploy
 ```

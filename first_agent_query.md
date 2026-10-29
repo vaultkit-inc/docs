@@ -90,6 +90,10 @@ vkit policy pack list
 vkit policy pack info starter
 ```
 
+The packs send approvals to the groups `data_owner` (starter), `security`
+(ai_safety) and `finance_manager` (financial_compliance). Add people to those groups
+in the console (Team, Edit member); until then only admins can approve.
+
 Writing your own policies instead of using a pack is covered in the [Policy Schema Reference](policy_guide.md).
 
 ---
@@ -127,7 +131,16 @@ Agents authenticate with their own tokens, separate from human users.
 vkit agents tokens create --name billing-bot --expires-in 24h --role agent
 ```
 
-This prints a token — save it, you'll pass it to the SDK next. List or revoke tokens with:
+This prints a token — save it, you'll pass it to the SDK next.
+
+With vkit 1.2.0 you can also fix what policies see for the token: `--clearance`
+(`low`, `medium`, `high`), `--region` (`EU`, `US`, `CA`, `APAC`), and `--tenant` for
+an assistant that serves several customers from shared tables. A token with
+`--tenant org_42` only ever reads `org_42`'s rows on datasets marked with
+`tenant_column` (see [Tenant-scoped datasets](policy_guide.md#tenant-scoped-datasets)).
+The agent can't change any of them.
+
+List or revoke tokens with:
 
 ```bash
 vkit agents tokens list

@@ -49,13 +49,13 @@ Example:
 ```yaml
 __pack_meta:
   name: starter
-  version: "1.0.0"
-  layer: foundation
-  description: "Secure baseline governance rules."
+  version: "2.0.0"
+  layer: 10
+  description: "Secure defaults: secrets denied, PII and high-sensitivity fields masked, approval for high-sensitivity data in production, unreviewed columns flagged."
   dependencies: []
   priority_band:
-    min: 100
-    max: 199
+    min: 0
+    max: 100
 ```
 
 ### Fields
@@ -64,7 +64,7 @@ __pack_meta:
 | --- | --- | --- |
 | `name` | ✅ | Pack identifier |
 | `version` | ✅ | Semantic version string |
-| `layer` | ✅ | `foundation` / `domain` / `custom` |
+| `layer` | ✅ | A number; lower layers are foundations for higher ones |
 | `description` | ❌ | Human-readable summary |
 | `dependencies` | ❌ | Required packs |
 | `priority_band` | ❌ | Enforced priority range |
@@ -73,21 +73,19 @@ __pack_meta:
 
 ## 3. Pack Layers
 
-Layers define enforcement precedence.
+A pack's `layer` is a number. Lower layers are foundations; higher layers build on
+them.
 
-- Lower layers form baseline security.
-- Higher layers refine behavior.
+| Layer | Shipped pack | Purpose |
+| --- | --- | --- |
+| 10 | `starter` | Core safety defaults |
+| 30 | `ai_safety` | Controls for AI agents |
+| 40 | `financial_compliance` | Financial data controls |
 
-| Layer | Purpose |
-| --- | --- |
-| `foundation` | Core safety defaults |
-| `domain` | Domain-specific governance |
-| `custom` | Organization-authored rules |
-
-Installation order must respect:
-```
-foundation → domain → custom
-```
+The CLI upgrades installed packs from the lowest layer up, and refuses a pack that
+depends on a pack at a higher layer than its own. Layers don't decide which policy
+wins at request time: the strongest action does (see
+[Which policy wins](policy_guide.md#which-policy-wins)).
 
 VaultKit enforces dependency presence but does not auto-install.
 
@@ -110,8 +108,8 @@ Installed file naming pattern:
 
 Example:
 ```
-starter__01__mask_pii.yaml
-starter__02__cross_region.yaml
+starter__01__deny_credentials.yaml
+starter__02__mask_pii_by_default.yaml
 ```
 
 This guarantees:
@@ -136,13 +134,13 @@ format_version: v1
 installed_packs:
   starter:
     name: starter
-    version: "1.0.0"
-    layer: foundation
-    installed_at: "2026-02-15T15:00:00Z"
+    version: "2.0.0"
+    layer: 10
+    installed_at: "2026-10-29T15:00:00Z"
     pack_checksum: "abc123..."
     files:
-      - path: config/policies/starter__01__mask_pii.yaml
-        policy_id: mask_pii
+      - path: config/policies/starter__02__mask_pii_by_default.yaml
+        policy_id: mask_pii_by_default
 ```
 
 This enables:
@@ -163,7 +161,7 @@ installed_version != shipped_version
 
 CLI output:
 ```
-⚠ starter (installed v1.0.0, available v1.1.0)
+⚠ starter (installed v1.0.0, available v2.0.0)
 ```
 
 Drift detection does NOT auto-upgrade.
@@ -200,7 +198,7 @@ When compiling a policy bundle, installed packs are embedded:
 "installed_packs": [
   {
     "name": "starter",
-    "version": "1.0.0"
+    "version": "2.0.0"
   }
 ]
 ```
@@ -274,6 +272,11 @@ InvalidPack: Policy priority outside allowed band
 
 This prevents cross-pack priority collisions.
 
+Priority orders policies inside a bundle; it doesn't decide which action wins. When
+several policies match a request, the strongest action wins whatever its priority:
+deny, then require approval, then mask, then allow. See the
+[Policy Guide](policy_guide.md#which-policy-wins).
+
 ---
 
 ## 12. Safe Removal
@@ -318,18 +321,35 @@ The Pack System follows:
 
 ---
 
-## 15. Example Pack Hierarchy
+## 15. Shipped Packs (2.0.0)
+
+| Pack | Depends on | What it does |
+| --- | --- | --- |
+| `starter` | — | Denies credentials. Masks personal data and high-sensitivity fields, also after approval. High-sensitivity data in production needs approval from `data_owner`. Columns rated `unknown` are allowed but flagged in the audit log. Other grants last 4 hours. |
+| `ai_safety` | `starter` | Agents need approval from `security` for personal, financial or `unknown` data in production, and for high-sensitivity data in any environment. |
+| `financial_compliance` | `starter` | Financial data in production needs approval from `finance_manager`, and grants with financial fields last 30 minutes. |
+
 ```
-starter (foundation)
-    ↓
-ai_safety (domain)
-    ↓
-financial_compliance (domain)
-    ↓
-custom_company_rules (custom)
+starter (layer 10)
+ ├── ai_safety (layer 30)
+ └── financial_compliance (layer 40)
+custom company rules (your own files, outside any pack)
 ```
 
-Each layer builds on the one below.
+Before relying on the packs, create the approval groups they name (`data_owner`,
+`security`, `finance_manager`), and review your registry labels: the packs act on
+each field's sensitivity and category.
+
+### Upgrading from 1.x
+
+The 1.x packs had policies that could never fire: clearance and region rules that
+matched values VaultKit didn't set, and financial rules that used an unsupported
+`category` key and tags nothing produced. Run `vkit policy pack upgrade` (vkit 1.2.0
+or later) to replace them.
+
+`vkit policy bundle` now refuses any policy that can never match, so a project still
+on the 1.x `financial_compliance` or `ai_safety` packs won't bundle until it's
+upgraded. The error lists each policy and says why.
 
 ---
 

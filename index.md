@@ -13,6 +13,7 @@ VaultKit prevents credential sprawl and enforces data access policies across dat
 - [Quick Start Guide](overview.md#-getting-started) - Get up and running in 5 minutes
 - [Installation](overview.md#installation-options) - Detailed installation instructions
 - [Deployment Guide](deployment.md) - Production deployment instructions
+- [Upgrading VaultKit](deployment.md#updating-vaultkit) - Upgrade notes for each release
 - [Your First Agent Query](first_agent_query.md) - From a running deployment to your first policy-governed agent query
 
 ### Core Concepts
@@ -20,6 +21,7 @@ VaultKit prevents credential sprawl and enforces data access policies across dat
 - [AQL Syntax & Specification](aql_specification.md) - Abstract Query Language reference
 - [Policy Schema Reference](policy_guide.md) - Policy configuration guide
 - [Policy Pack System](pack_system.md) - Versioned governance distribution
+- [Tenant-Scoped Datasets](policy_guide.md#tenant-scoped-datasets) - Confine agents to one customer's rows in shared tables
 
 ### CLI Reference
 - [VaultKit CLI (`vkit`)](cli.md) - Complete command-line reference
@@ -27,6 +29,7 @@ VaultKit prevents credential sprawl and enforces data access policies across dat
 - [Data Requests](cli.md#data-request-commands) - Querying data with AQL
 - [Policy Management](cli.md#policy-management-commands) - Deploy and manage policies
 - [Policy Pack Commands](cli.md#policy-pack-commands) - Install and manage policy packs
+- [Agent Tokens](cli.md#agent-tokens) - Issue tokens with a tenant, clearance and region
 - [Audit Queries](cli.md#audit-commands) - Search and export audit logs
 
 ### Advanced Topics
