@@ -22,7 +22,7 @@ Verify it worked:
 vkit whoami
 ```
 
-Full reference: [Authentication](cli.md#-authentication)
+Full reference: [Authentication](cli.md#sign-in)
 
 ---
 
@@ -71,7 +71,7 @@ vkit scan users_db --mode apply
 vkit registry export
 ```
 
-Full reference: [Schema Discovery & Policy Management](overview.md#schema-discovery--policy-management)
+Full reference: [Schema Discovery & Policy Management](schema_discovery.md)
 
 ---
 
@@ -100,7 +100,7 @@ Writing your own policies instead of using a pack is covered in the [Policy Sche
 
 ## 5. Compile, validate, and deploy the policy bundle
 
-VaultKit fingerprints each policy bundle using your git `commit_sha`, so your project must be inside a git repo with changes committed **before** you deploy — an uncommitted or dirty working tree will fingerprint against the wrong commit (or fail outright).
+The bundle version is your git commit (`git rev-parse HEAD`), so commit your policies and registry **before** you bundle. `vkit policy bundle` doesn't check for uncommitted changes: it builds whatever is on disk and labels it with the last commit.
 
 ```bash
 git add config/policies datasets
@@ -119,7 +119,7 @@ vkit policy deploy
 
 If you change a policy afterward, you'll need to commit again before re-running `bundle`/`deploy` — the new commit becomes the new fingerprint.
 
-Full reference: [Policy Management](cli.md#policy-management-commands) · [Policy Pack Commands](cli.md#policy-pack-commands)
+Full reference: [Policy Management](cli.md#policy-projects-and-bundles) · [Policy Pack Commands](cli.md#policy-packs)
 
 ---
 
@@ -128,7 +128,7 @@ Full reference: [Policy Management](cli.md#policy-management-commands) · [Polic
 Agents authenticate with their own tokens, separate from human users.
 
 ```bash
-vkit agents tokens create --name billing-bot --expires-in 24h --role agent
+vkit agents tokens create --name billing-bot --expires-in 24h
 ```
 
 This prints a token — save it, you'll pass it to the SDK next.
@@ -152,7 +152,7 @@ vkit agents tokens revoke --token <id-or-prefix>
 ## 7. Run your first query — Python SDK
 
 ```bash
-pip install vaultkit
+pip install "vaultkit>=0.3.0"
 ```
 
 **Direct query (no LLM):**
@@ -163,121 +163,109 @@ from vaultkit import VaultKitClient
 client = VaultKitClient(
     base_url="https://your-vaultkit-url",
     token="<agent-token-from-step-6>",
-    org="<your-org>",
+    org="<your-org-slug>",
 )
 
 result = client.execute(
-    dataset="users_db",
+    dataset="users",                  # a dataset in your registry, not the datasource id
     fields=["id", "email"],
     limit=10,
-    purpose="Analyze user activity",
+    purpose="Analyze user activity",  # recorded and shown to approvers
 )
 
 print(result.rows)
 ```
 
-Or set these as environment variables instead of passing them inline:
+`VaultKitClient` takes all three settings as arguments; it doesn't read environment
+variables. A request needs `fields`, `aggregates`, or both. Aggregates (`count`,
+`sum`, `avg`, `min`, `max`) with `group_by` need SDK 0.3.0 or later.
 
-```bash
-export VAULTKIT_URL=https://your-vaultkit-url
-export VAULTKIT_TOKEN=<agent-token>
-export VAULTKIT_ORG=<your-org>
-```
-
-**As LLM agent tools (OpenAI example):**
-
-This is the realistic pattern for a production agent — it discovers datasets first, only queries what discovery returned, and polls for approval without blocking the whole process.
-
-Full working example: [`agent_openai_demo.py`](https://github.com/vaultkit-inc/vaultkit-sdk-python/blob/main/examples/agent_openai_demo.py)
+**As LLM agent tools:** the [`agent_openai_demo.py`](https://github.com/vaultkit-inc/vaultkit-sdk-python/blob/main/examples/agent_openai_demo.py)
+example has an agent discover datasets first, only query what discovery returned, and
+wait for approvals.
 
 ---
 
 ## 8. Run your first query — MCP
 
-Install the SDK with the `mcp` extra (requires Python 3.10+) inside a virtual environment:
+Install the SDK with the `mcp` extra (Python 3.10+), in a virtual environment:
 
 ```bash
 python3 -m venv vaultkit-env
 source vaultkit-env/bin/activate
-pip install "vaultkit[mcp] @ git+https://github.com/vaultkit-inc/vaultkit-sdk-python.git"
+pip install "vaultkit[mcp]>=0.3.0"
 ```
 
-Set the same three credentials as before:
+The MCP server reads its settings from the environment:
 
 ```bash
 export VAULTKIT_BASE_URL="https://your-vaultkit-url"
 export VAULTKIT_TOKEN="<agent-token-from-step-6>"
-export VAULTKIT_ORG="<your-org>"
-```
-
-Start the MCP server:
-
-```bash
+export VAULTKIT_ORG="<your-org-slug>"
 vaultkit-mcp
 ```
 
-It will sit silently waiting for input — that's correct, it's waiting for an MCP host (Claude Desktop, Cursor, MCP Inspector) to connect, not a hang.
-
-For connecting a host, testing with MCP Inspector, and troubleshooting, see the full [MCP Usage Guide](mcp_usage.md).
+It waits silently for an MCP host (Claude Code, Claude Desktop, Cursor, MCP Inspector)
+to connect; that isn't a hang. To connect a host, see the
+[MCP Usage Guide](mcp_usage.md).
 
 ---
 
 ## 9. Handle an approval-required query
 
-If a policy requires human approval, the SDK raises `ApprovalRequiredError`:
+If a policy requires approval, the SDK raises `ApprovalRequiredError`:
 
 ```python
 from vaultkit.errors.exceptions import ApprovalRequiredError
 
 try:
-    client.execute(dataset="sensitive_data", purpose="Analysis")
+    client.execute(dataset="payments", fields=["id", "amount", "status"],
+                   purpose="Investigate failed refunds for INC-123")
 except ApprovalRequiredError as e:
     print(f"Approval required. Request ID: {e.request_id}")
 ```
 
-From another terminal (as the approver):
+An approver in the right group signs off in the console under **Approvals**, or with
+the CLI:
 
 ```bash
 vkit approval:list --state pending
-vkit approval:approve <id> --ttl 3600
+vkit approval:approve <id>
 ```
 
-Or watch pending approvals live:
+The `<id>` is the number `approval:list` shows. It isn't the agent's request ID, so
+identify the request by its requester, dataset, fields and reason. You can also
+watch for new requests with `vkit approvals:watch`.
 
-```bash
-vkit approvals:watch --interval 3
-```
-
-Once approved, resume from the agent side:
-
-```python
-result = client.poll_request(request_id="req_123")
-```
-
-If you're using the tool-based agent pattern from Step 7 instead of direct `client.execute()`, poll with the `vaultkit_check_approval` tool in a loop (with a timeout) rather than calling `poll_request` directly — this lets the agent keep responding instead of blocking. See the approval-wait loop in [`agent_openai_demo.py`](https://github.com/vaultkit-inc/vaultkit-sdk-python/blob/main/examples/agent_openai_demo.py) for the full pattern.
-
-Full reference: [Data Requests](cli.md#data-request-commands)
+Once it's approved, the agent runs **the same request again** and gets the rows: the
+approval issued a grant for exactly that query. An agent that wants to wait can
+check first with `client.poll_request(request_id=e.request_id)`, which reports
+`pending`, `granted` or `denied`. With the MCP server, the agent uses the
+`vaultkit_check_approval` tool. See [Approvals and grants](approvals_and_grants.md).
 
 ---
 
 ## 10. Fetch data directly via CLI (no SDK)
 
-Useful for testing a grant without writing code:
+For your own requests, `vkit request` and `vkit fetch` work without any code:
 
 ```bash
-vkit fetch --grant <grant-id>
+vkit request --aql '{"source_table": "users", "columns": ["id"], "limit": 5}'
+vkit fetch --grant <grant-ref>
 ```
 
-Revoke a grant early if needed:
+A grant belongs to whoever requested it, so you can't fetch an agent's grant as a
+user. Admins can revoke any grant early:
 
 ```bash
-vkit grant:revoke --grant <grant-id> --reason "testing complete"
+vkit grant:revoke --grant <grant-ref> --reason "testing complete"
 ```
 
 ---
 
 ## What's next
 
-- [Audit Queries](cli.md#audit-commands) — search and export the audit log for everything you just did
-- [Use Cases](overview.md#use-cases) — real-world patterns beyond this walkthrough
-- [Security Best Practices](overview.md#security-best-practices) — key management before going to production
+- [Approvals and grants](approvals_and_grants.md) — how sign-offs, grant lifetimes and reuse work
+- [Schema discovery](schema_discovery.md) — review the labels your policies act on
+- [Overview](overview.md) — examples beyond this walkthrough
+- [Security model](overview.md#security-model) — what VaultKit checks, and where

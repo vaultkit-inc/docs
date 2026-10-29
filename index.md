@@ -1,138 +1,90 @@
 # VaultKit Documentation
 
-> A secure, policy-driven control plane for unified data access across heterogeneous data sources.
+VaultKit lets AI agents and people query production data without holding database
+credentials. Policies in git decide what each request may return: allowed, masked, sent
+to a person for approval, or denied. Allowed requests get a short-lived grant for that
+one query, and everything is recorded.
 
-VaultKit prevents credential sprawl and enforces data access policies across databases. Write queries in AQL (vendor-neutral JSON), policies decide who sees what, FUNL executes safely. Schema changes require explicit review—no silent data exposure.
-
----
-
-## Documentation
-
-### Getting Started
-- [Main Overview](overview.md) - Complete introduction to VaultKit and FUNL
-- [Quick Start Guide](overview.md#-getting-started) - Get up and running in 5 minutes
-- [Installation](overview.md#installation-options) - Detailed installation instructions
-- [Deployment Guide](deployment.md) - Production deployment instructions
-- [Upgrading VaultKit](deployment.md#updating-vaultkit) - Upgrade notes for each release
-- [Your First Agent Query](first_agent_query.md) - From a running deployment to your first policy-governed agent query
-
-### Core Concepts
-- [Architecture Overview](overview.md#-architecture) - How VaultKit and FUNL work together
-- [AQL Syntax & Specification](aql_specification.md) - Abstract Query Language reference
-- [Policy Schema Reference](policy_guide.md) - Policy configuration guide
-- [Policy Pack System](pack_system.md) - Versioned governance distribution
-- [Tenant-Scoped Datasets](policy_guide.md#tenant-scoped-datasets) - Confine agents to one customer's rows in shared tables
-
-### CLI Reference
-- [VaultKit CLI (`vkit`)](cli.md) - Complete command-line reference
-- [Authentication](cli.md#-authentication) - Login and session management
-- [Data Requests](cli.md#data-request-commands) - Querying data with AQL
-- [Policy Management](cli.md#policy-management-commands) - Deploy and manage policies
-- [Policy Pack Commands](cli.md#policy-pack-commands) - Install and manage policy packs
-- [Agent Tokens](cli.md#agent-tokens) - Issue tokens with a tenant, clearance and region
-- [Audit Queries](cli.md#audit-commands) - Search and export audit logs
-
-### Advanced Topics
-- [Schema Discovery & Policy Management](overview.md#-schema-discovery--policy-management) - Handling schema drift
-- [Security Best Practices](overview.md#-security-best-practices) - Key management and deployment
-- [Use Cases](overview.md#-use-cases) - Real-world examples and patterns
-- [MCP Usage Guide](mcp_usage.md) - Install, run, connect, and test the VaultKit MCP server
+**Current versions:** VaultKit 0.9.0-alpha · vkit 1.2.0 · Python SDK 0.3.0
 
 ---
 
-## Quick Links
+## Start here
 
-**For Users:**
-- [Submit a data request](cli.md#vkit-request)
-- [Fetch query results](cli.md#vkit-fetch)
-- [Check request status](cli.md#vkit-requests-list)
+- [Overview](overview.md): what VaultKit is, how a request flows, what's supported
+  today
+- [Deployment Guide](deployment.md): run VaultKit with Docker Compose
+- [Upgrading VaultKit](deployment.md#updating-vaultkit): notes for each release
+- [Your First Agent Query](first_agent_query.md): from a running deployment to a
+  policy-governed agent query
 
-**For Approvers:**
-- [Review pending requests](cli.md#vkit-approvallist)
-- [Approve/deny requests](cli.md#vkit-approvalapprove)
+## Concepts
 
-**For Administrators:**
-- [Deploy VaultKit](DEPLOYMENT.md)
-- [Register datasources](cli.md#vkit-datasource-add)
-- [Scan for schema changes](cli.md#vkit-scan)
-- [Deploy policy bundles](cli.md#vkit-policy-deploy)
-- [Query audit logs](cli.md#vkit-audit-query)
+- [Policy Guide](policy_guide.md): writing policies, requester attributes, which
+  policy wins
+- [Policy Packs](pack_system.md): ready-made, versioned policies
+- [Approvals and Grants](approvals_and_grants.md): who signs off, how long access
+  lasts, reuse and revocation
+- [Schema Discovery](schema_discovery.md): the registry, scan labels, reviewing them
+- [Tenant-Scoped Datasets](policy_guide.md#tenant-scoped-datasets): confine agents to
+  one customer's rows in shared tables
+- [AQL Specification](aql_specification.md): the query format, including the intent
+  format agents use
+
+## Reference
+
+- [CLI (`vkit`)](cli.md): every command and option
+- [Agent Tokens](cli.md#agent-tokens): issue tokens with a tenant, clearance and region
+- [MCP Usage Guide](mcp_usage.md): connect Claude Code, Claude Desktop, Cursor or
+  another MCP host
 
 ---
 
-## Common Workflows
+## Common tasks
 
-### Request Data with Auto-Approval
+**Request data and fetch it**
+
 ```bash
-# Submit AQL query
-vkit request --aql '{
-  "source_table": "customers",
-  "columns": ["id", "email", "revenue"],
-  "limit": 10
-}'
-
-# Fetch results
-vkit fetch --grant gr_abc123xyz
+vkit request --aql '{"source_table": "orders", "columns": ["id", "status"], "limit": 10}'
+vkit fetch --grant <grant-ref-from-the-output>
 ```
 
-### Request Sensitive Data (Requires Approval)
+**Approve a request**
+
 ```bash
-# Submit request
-vkit request --aql '{
-  "source_table": "financial_transactions",
-  "columns": ["transaction_id", "amount"],
-  "filters": [{"field": "amount", "operator": "gt", "value": 10000}]
-}'
-
-# Check status
-vkit requests list --state pending
-
-# After approval
-vkit fetch --grant gr_approved_xyz
+vkit approval:list
+vkit approval:approve <id>
 ```
 
-### Discover Schema Changes
+Or open **Approvals** in the console.
+
+**Scan a database and deploy policies**
+
 ```bash
-# Scan database
-vkit scan production_db
-
-# Apply changes to baseline
-vkit scan production_db --apply
-
-# Update policies and deploy
+vkit scan prod_db --mode apply
+vkit registry export
+# review datasets/registry.yaml and your policies, then commit
 vkit policy bundle
-vkit policy deploy --bundle dist/policy_bundle.json --activate
+vkit policy deploy
 ```
 
 ---
 
-## Key Features
+## Supported today
 
-| Feature | Description |
-|---------|-------------|
-| **Zero-Trust Access** | Short-lived, cryptographically-signed tokens |
-| **Policy-Driven** | ABAC/RBAC with field-level controls |
-| **Multi-Engine** | PostgreSQL, MySQL, Snowflake, BigQuery |
-| **SQL-Level Masking** | Masking applied during query execution |
-| **Schema Governance** | Git-backed policies with drift detection |
-| **Audit Trail** | Complete logging of every data access |
-| **Approval Workflows** | Multi-stage approvals for sensitive data |
-| **Vendor-Neutral** | AQL abstracts database-specific syntax |
+| | |
+| --- | --- |
+| Datasources | PostgreSQL |
+| Sign-in | Email and password; SSO with one OpenID Connect provider per deployment |
+| Clients | `vkit` CLI, Python SDK, MCP server, web console |
+| Masking | `full`, `partial`, `hash` |
+| Audit | Stored in the control plane's database (no audit API yet) |
 
 ---
 
-## Support
+## Source
 
-- **GitHub**: [github.com/ndbaba1/vaultkitcli.git](https://github.com/ndbaba1/vaultkitcli.git)
-- **Issues**: Report bugs and request features
-- **Email**: Contact the VaultKit Engineering Team
-
----
-
-## License
-
-VaultKit is licensed under the Apache License 2.0.
-
----
-
-**Built with ❤️ by the VaultKit Engineering Team**
+- CLI: [github.com/vaultkit-inc/vaultkitcli](https://github.com/vaultkit-inc/vaultkitcli)
+- Python SDK and MCP server: [github.com/vaultkit-inc/vaultkit-sdk-python](https://github.com/vaultkit-inc/vaultkit-sdk-python)
+- Deployment files: [github.com/vaultkit-inc/deploy](https://github.com/vaultkit-inc/deploy)
+- This documentation: [github.com/vaultkit-inc/docs](https://github.com/vaultkit-inc/docs), licensed under the Apache License 2.0
