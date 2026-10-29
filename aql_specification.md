@@ -1,468 +1,260 @@
 # AQL Syntax & Specification
 
-**Version:** `v0.2`  
-**Applies to:** Funl Data Translator  
-**Maintained by:** VaultKit Engineering Team  
+**Applies to:** VaultKit 0.9.0-alpha (control plane and funl runtime)
+
+AQL (Access Query Language) is the JSON format for asking VaultKit for data. A query
+says which table, columns, filters and aggregates you want; it never contains SQL.
+
+How a query runs:
+
+1. The **control plane** checks it, applies the row limit, adds the tenant filter for
+   tenant-scoped datasets, evaluates your policies, and decides: allow, mask, require
+   approval or deny.
+2. If it's allowed, the control plane issues a grant and sends the query, with the
+   fields to mask, to **funl**.
+3. **funl** translates it into parameterised SQL, applies the masking, runs it against
+   the datasource, and returns rows.
+
+Only PostgreSQL datasources are supported today.
 
 ---
 
-## Overview
+## Where queries are sent
 
-**AQL (Abstract Query Language)** is a structured, JSON-based query specification format used by the **VaultKit + Funl** stack.  
-It allows secure, policy-aware data access by expressing *what data to retrieve* rather than writing raw SQL.
-
-AQL queries are translated into SQL dynamically by Funl, applying masking, approval, and compliance policies before execution.
-
----
-
-## Table of Contents
-
-1. [Overview](#-overview)  
-2. [Top-Level Structure](#-top-level-structure)  
-3. [Field Reference](#-field-reference)  
-4. [Clause Details](#-clause-details)  
-   - [SELECT](#-select-clause)  
-   - [JOIN](#-join-clause)  
-   - [WHERE](#-where-clause)  
-   - [HAVING](#-having-clause)  
-   - [ORDER BY](#-order-by-clause)  
-   - [LIMIT / OFFSET](#-limit-and-offset)  
-5. [Masking & Security Extensions](#-masking--security-extensions)  
-6. [Examples](#-examples)  
-7. [Future Extensions](#-future-extensions)  
-8. [Full Example Query](#-example-full-query)  
-9. [Summary](#-summary)
+| Who | Endpoint | Body |
+| --- | --- | --- |
+| People and scripts (`vkit request`) | `POST /api/v1/orgs/<org>/requests` | `{"aql": { … }}` — the full format on this page |
+| Agents (Python SDK, MCP server) | `POST /api/v1/orgs/<org>/intent/requests` | `{"request": { … }}` — the [intent format](#the-intent-format-for-agents), a simpler subset |
 
 ---
 
-## Top-Level Structure
-
-Every AQL query describes a single data retrieval request.
+## Top-level structure
 
 ```json
 {
   "source_table": "orders",
-  "columns": ["id", "region", "amount"],
+  "columns": ["status"],
   "joins": [],
-  "aggregates": [],
-  "filters": [],
-  "group_by": [],
+  "filters": [{"field": "status", "operator": "neq", "value": "refunded"}],
+  "aggregates": [{"func": "count", "field": "id", "alias": "orders"}],
+  "group_by": ["status"],
   "having": [],
-  "order_by": null,
-  "limit": 0,
+  "order_by": {"column": "status", "direction": "ASC"},
+  "limit": 100,
   "offset": 0
 }
 ```
 
----
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `source_table` | string | yes | A dataset in your registry. `dataset` is accepted as an alias. |
+| `columns` | array of strings | no | Columns, or `table.column` with joins. Aggregate expressions such as `"MAX(amount)"` are also allowed. With no columns and no aggregates, every column is selected. |
+| `joins` | array | no | See [Joins](#joins). |
+| `filters` | array | no | Combined with AND. See [Filters](#filters). |
+| `aggregates` | array | no | See [Aggregates](#aggregates). |
+| `group_by` | array of strings | no | See [Grouping](#grouping). |
+| `having` | array | no | Conditions on aggregates. |
+| `order_by` | object | no | One `{"column", "direction"}`, not a list. |
+| `limit` | integer | no | Default 100, maximum 10,000. |
+| `offset` | integer | no | Default 0. |
 
-## Field Reference
-
-| Field | Type | Description | Example |
-|-------|------|--------------|----------|
-| `source_table` | string | The base table or dataset to query. | `"users"` |
-| `columns` | array[string] | List of fields to select (supports `table.field`). | `["email", "username"]` |
-| `joins` | array[Join] | Describes table joins. | `[{"type": "LEFT", "table": "orders", "left_field": "users.id", "right_field": "orders.user_id"}]` |
-| `aggregates` | array[Aggregation] | Aggregate functions. | `[{"func": "sum", "field": "orders.amount", "alias": "total"}]` |
-| `filters` | array[Filter] | WHERE clause filters. | `[{"operator": "eq", "field": "users.active", "value": true}]` |
-| `group_by` | array[string] | Columns to group results by. | `["region"]` |
-| `having` | array[Having] | Post-aggregation filters. | `[{"operator": "gt", "field": "SUM(orders.amount)", "value": 10000}]` |
-| `order_by` | object | Sorting configuration. | `{"column": "orders.amount", "direction": "DESC"}` |
-| `limit` | integer | Max number of rows to return. | `10` |
-| `offset` | integer | Pagination offset. | `20` |
-
----
-
-## Clause Details
-
-### SELECT Clause
-
-Determines which fields or aggregates to return.
-
-```json
-{
-  "source_table": "users",
-  "columns": ["email", "username"]
-}
-```
-
-➡️ **SQL Output:**
-
-```sql
-SELECT users.email, users.username FROM users;
-```
-
-With aggregates:
-
-```json
-{
-  "source_table": "orders",
-  "columns": ["region"],
-  "aggregates": [{ "func": "sum", "field": "orders.amount", "alias": "total_amount" }],
-  "group_by": ["region"]
-}
-```
-
-➡️ **SQL Output:**
-
-```sql
-SELECT region, SUM(orders.amount) AS total_amount FROM orders GROUP BY region;
-```
-
-💡 If `group_by` is missing but aggregates exist, Funl automatically groups by columns.
+Table and column names must be plain identifiers (letters, digits, underscores,
+optionally `table.column`). Quoted or schema-qualified names are rejected. Every value
+in filters and `having`, and the limit and offset, is sent as a bound parameter.
 
 ---
 
-### JOIN Clause
+## Joins
 
 ```json
 "joins": [
-  {
-    "type": "LEFT",
-    "table": "orders",
-    "alias": "o",
-    "left_field": "users.id",
-    "right_field": "o.user_id"
-  }
+  {"type": "LEFT", "table": "customers", "alias": "c",
+   "left_field": "orders.customer_id", "right_field": "c.id"}
 ]
 ```
 
-➡️ **SQL Output:**
-
-```sql
-LEFT JOIN orders o ON users.id = o.user_id
-```
-
-**Supported join types:** `INNER`, `LEFT`, `RIGHT`, `FULL`
+- `type`: `INNER` (the default), `LEFT`, `RIGHT` or `FULL`.
+- `alias` is optional. Once a joined table has one, references written as
+  `customers.email` are rewritten to `c.email` for you.
+- Every joined table must be in your registry. Policies are evaluated for each table
+  the query touches, using the fields it references on that table.
 
 ---
 
-## WHERE Clause
+## Filters
 
-Used for filtering before aggregation.  
-Supports both simple conditions and nested logical groups using `AND` and `OR`.
-
-### Basic Example
+A filter compares one field to a value. Top-level filters are combined with AND.
 
 ```json
 "filters": [
-  { "operator": "eq", "field": "users.active", "value": true },
-  { "operator": "gt", "field": "orders.amount", "value": 100 }
+  {"field": "status", "operator": "eq", "value": "failed"},
+  {"logic": "OR", "conditions": [
+    {"field": "amount", "operator": "gte", "value": 1000},
+    {"field": "region", "operator": "in", "value": ["EU", "CA"]}
+  ]}
 ]
 ```
 
-➡️ **SQL Output:**
+| Operator | Meaning |
+| --- | --- |
+| `eq`, `neq` | equal, not equal |
+| `gt`, `gte`, `lt`, `lte` | greater or less than (or equal) |
+| `like` | contains: the value is matched as `%value%` |
+| `in` | one of a non-empty array of values |
+| `is_null`, `is_not_null` | no `value` needed |
 
-```sql
-WHERE users.active = $1 AND orders.amount > $2
-```
+- A group is `{"logic": "AND" | "OR", "conditions": [ … ]}`, nested as deep as you
+  need, and is always parenthesised in the SQL.
+- Filters can use `hash`-masked fields: the column is hashed before it's compared.
+  Fields masked `full` or `partial` can be returned masked, but not used to filter,
+  group or sort.
 
 ---
 
-### Advanced Example — OR and Nested Logic
+## Aggregates
 
 ```json
-"filters": [
-  {
-    "logic": "OR",
-    "conditions": [
-      { "operator": "eq", "field": "users.role", "value": "admin" },
-      { "operator": "eq", "field": "users.role", "value": "manager" }
-    ]
-  },
-  { "operator": "gt", "field": "orders.amount", "value": 100 }
+"aggregates": [
+  {"func": "count", "field": "id", "alias": "orders"},
+  {"func": "sum", "field": "total", "alias": "revenue"}
 ]
 ```
 
-➡️ **SQL Output:**
-
-```sql
-WHERE (users.role = $1 OR users.role = $2) AND orders.amount > $3;
-```
+- `func`: `COUNT`, `SUM`, `AVG`, `MIN`, `MAX`, in any case.
+- `field`: a column, `table.column`, or `*` (only with `COUNT`).
+- `alias`: the output column name, which `order_by` can use.
+- Over a masked field, only `COUNT` is allowed: `SUM`, `AVG`, `MIN` and `MAX` would
+  reveal the raw values, so the request is denied.
 
 ---
 
-### Nested Groups
+## Grouping
 
-You can nest multiple logical groups, and the translator will automatically wrap `OR` blocks in parentheses to preserve precedence.
+With aggregates, the plain `columns` are the grouping columns. `group_by` makes the
+grouping explicit. Grouping or sorting by a field masked `full` or `partial` is
+denied; `hash`-masked fields are allowed.
+
+---
+
+## Having
 
 ```json
-"filters": [
-  {
-    "logic": "AND",
-    "conditions": [
-      {
-        "logic": "OR",
-        "conditions": [
-          { "operator": "eq", "field": "users.country", "value": "CA" },
-          { "operator": "eq", "field": "users.country", "value": "US" }
-        ]
-      },
-      {
-        "logic": "OR",
-        "conditions": [
-          { "operator": "gt", "field": "orders.amount", "value": 5000 },
-          { "operator": "eq", "field": "users.vip", "value": true }
-        ]
-      }
-    ]
-  }
-]
+"having": [{"field": "COUNT(id)", "operator": "gt", "value": 5}]
 ```
 
-➡️ **SQL Output:**
-
-```sql
-WHERE ((users.country = $1 OR users.country = $2)
-   AND (orders.amount > $3 OR users.vip = $4));
-```
+Operators: `gt`, `gte`, `lt`, `lte`, `eq`. Conditions are combined with AND.
 
 ---
 
-### Supported Operators
-
-| Operator | SQL Equivalent | Example |
-|-----------|----------------|----------|
-| `eq` | `=` | `users.role = $1` |
-| `neq` | `!=` | `users.role != $1` |
-| `gt` | `>` | `orders.amount > $1` |
-| `lt` | `<` | `orders.amount < $1` |
-| `gte` | `>=` | `orders.amount >= $1` |
-| `lte` | `<=` | `orders.amount <= $1` |
-| `like` | `LIKE` | `users.email LIKE '%@example.com%'` |
-| `in` | `IN (...)` | `users.id IN ($1, $2, $3)` |
-| `is_null` | `IS NULL` | `users.deleted_at IS NULL` |
-| `is_not_null` | `IS NOT NULL` | `users.deleted_at IS NOT NULL` |
-
----
-
-### Masking-Aware Filtering
-
-If masking policies are defined for a field, filters on that field automatically use the masked version in SQL.
-
-Example:
+## Order by
 
 ```json
-{ "operator": "eq", "field": "users.email", "value": "test@example.com" }
+"order_by": {"column": "revenue", "direction": "DESC"}
 ```
 
-➡️ **SQL Output (with hash masking):**
-```sql
-WHERE ENCODE(DIGEST(users.email::text, 'sha256'), 'hex') = $1
-```
+One column, an aggregate alias or an aggregate expression. `direction` is `ASC`
+(the default) or `DESC`.
 
 ---
 
-### HAVING Clause
+## Limit and offset
 
-Post-aggregation filters.
-
-```json
-"having": [
-  { "operator": "gt", "field": "SUM(orders.amount)", "value": 10000 }
-]
-```
-
-➡️ **SQL Output:**
-
-```sql
-HAVING SUM(orders.amount) > $1
-```
+The control plane sets a limit of 100 rows when none is given, and refuses more than
+10,000, zero, negatives and non-integers. `offset` defaults to 0.
 
 ---
 
-### ORDER BY Clause
+## Masking
 
-```json
-"order_by": { "column": "orders.amount", "direction": "DESC" }
-```
+Policies decide which fields are masked and how; queries don't ask for it. Masking is
+applied to the returned values:
 
-➡️ **SQL Output:**
+| Method | Returns |
+| --- | --- |
+| `full` | `*****` |
+| `partial` | the first three characters, then `****` |
+| `hash` | a SHA-256 hex digest |
 
-```sql
-ORDER BY orders.amount DESC
-```
-
----
-
-### LIMIT and OFFSET
-
-```json
-"limit": 10,
-"offset": 20
-```
-
-➡️ **SQL Output:**
-
-```sql
-LIMIT 10 OFFSET 20
-```
+Aggregates over masked fields are masked too, except `COUNT`. See the
+[Policy Guide](policy_guide.md) for how masking policies combine.
 
 ---
 
-## Masking & Security Extensions
+## Tenant-scoped datasets
 
-Funl can apply masking at translation time based on registered policies.
+For a dataset marked with `tenant_column`, the control plane adds
+`<table>.<tenant_column> = <your tenant>` to every query that reads it, ANDed with
+your filters, for the source table and every joined table. A requester without a
+tenant is denied. See [Tenant-scoped datasets](policy_guide.md#tenant-scoped-datasets).
 
-| Type | Description | SQL Output |
-|------|--------------|------------|
-| `partial` | Show first few characters | `CONCAT(LEFT(email, 3), '****')` |
-| `hash` | Replace with irreversible hash | `ENCODE(DIGEST(email::text, 'sha256'), 'hex')` |
-| `full` | Fully masked | `'*****'` |
+---
 
-**Example:**
+## Generated SQL
+
+The query at the top of this page, minus the filter, becomes:
+
+```sql
+SELECT "public"."orders".status AS status, COUNT(id) AS orders
+FROM "public"."orders"
+GROUP BY status
+ORDER BY status ASC
+LIMIT $1
+```
+
+Tables are qualified with their schema, and each column gets an alias. When two
+selected columns share a name, they come back as `<table>_<column>`.
+
+---
+
+## The intent format for agents
+
+Agents send a simpler request through the intent API, which the Python SDK and MCP
+server use:
 
 ```json
 {
-  "source_table": "users",
-  "columns": ["email", "username"]
+  "request": {
+    "dataset": "orders",
+    "fields": ["status"],
+    "aggregates": [{"func": "sum", "field": "total", "alias": "revenue"}],
+    "group_by": ["status"],
+    "filters": [{"field": "created_at", "operator": "gte", "value": "2026-10-01"}],
+    "order_by": {"column": "revenue", "direction": "DESC"},
+    "limit": 50,
+    "purpose": "Weekly revenue summary for the finance channel"
+  }
 }
 ```
 
-**Mask registry:**
+Differences from full AQL:
 
-```go
-masking.Register("users.email", masking.Policy{Type: "partial"})
-```
-
-➡️ **SQL Output:**
-
-```sql
-SELECT CONCAT(LEFT(users.email, 3), '****') AS email, users.username FROM users;
-```
-
----
-
-## Examples
-
-### Basic Selection
-
-```json
-{
-  "source_table": "users",
-  "columns": ["id", "email"]
-}
-```
-
-➡️ **SQL Output:**
-
-```sql
-SELECT users.id, users.email FROM users;
-```
+- **No joins,** and `offset` is always 0.
+- **Operators** are the named ones only (no `=` or `>` shorthands). `logic` must be
+  `AND` or `OR`, groups can't be empty, and nesting is limited to 5 levels.
+- **Fields:**
+  - `fields` can't contain `*`, and a request needs fields or aggregates;
+  - fields are bare names or qualified with the request's own dataset;
+  - fields used only in aggregates or grouping must still be visible to the agent.
+- **Aggregates and having:**
+  - aggregate aliases must be unique, simple names;
+  - with an explicit `group_by`, every selected field must be in it;
+  - `having` needs aggregates, a numeric value, and an aggregate expression as its
+    field.
+- **`purpose`** is recorded with the request and shown to approvers. Rewording it
+  doesn't trigger a new approval.
 
 ---
 
-### Aggregation + Filtering
+## Example: a join with a filter
 
 ```json
 {
   "source_table": "orders",
-  "columns": ["region"],
-  "aggregates": [{ "func": "sum", "field": "orders.amount", "alias": "total" }],
-  "group_by": ["region"],
-  "having": [{ "operator": "gt", "field": "SUM(orders.amount)", "value": 5000 }]
+  "columns": ["orders.id", "orders.total", "c.region"],
+  "joins": [{"type": "INNER", "table": "customers", "alias": "c",
+             "left_field": "orders.customer_id", "right_field": "c.id"}],
+  "filters": [{"field": "orders.status", "operator": "eq", "value": "completed"}],
+  "order_by": {"column": "orders.total", "direction": "DESC"},
+  "limit": 20
 }
 ```
-
-➡️ **SQL Output:**
-
-```sql
-SELECT region, SUM(orders.amount) AS total
-FROM orders
-GROUP BY region
-HAVING SUM(orders.amount) > $1;
-```
-
----
-
-### Join Example
-
-```json
-{
-  "source_table": "users",
-  "columns": ["users.id", "orders.amount"],
-  "joins": [
-    {"type": "LEFT", "table": "orders", "left_field": "users.id", "right_field": "orders.user_id"}
-  ],
-  "filters": [
-    {"operator": "eq", "field": "users.active", "value": true}
-  ]
-}
-```
-
-➡️ **SQL Output:**
-
-```sql
-SELECT users.id, orders.amount
-FROM users
-LEFT JOIN orders ON users.id = orders.user_id
-WHERE users.active = $1;
-```
-
----
-
-## Future Extensions
-
-| Feature | Description |
-|----------|--------------|
-| Nested subqueries | `SELECT ... FROM (SELECT ...)` support |
-| CASE expressions | Conditional field derivation |
-| Window functions | `ROW_NUMBER() OVER (...)`, `RANK()` |
-| UNION / INTERSECT / EXCEPT | Multi-query composition |
-| JSON operators | Semi-structured data support (e.g., `->`, `->>`) |
-
----
-
-## Example Full Query
-
-**AQL:**
-
-```json
-{
-  "source_table": "users",
-  "joins": [
-    {"type": "LEFT", "table": "orders", "left_field": "users.id", "right_field": "orders.user_id"}
-  ],
-  "columns": ["users.email", "users.username"],
-  "aggregates": [{"func": "sum", "field": "orders.amount", "alias": "total_spent"}],
-  "group_by": ["users.email", "users.username"],
-  "having": [{"operator": "gt", "field": "SUM(orders.amount)", "value": 500}],
-  "order_by": {"column": "total_spent", "direction": "DESC"},
-  "limit": 10
-}
-```
-
-**SQL Output:**
-
-```sql
-SELECT users.email, users.username, SUM(orders.amount) AS total_spent
-FROM users
-LEFT JOIN orders ON users.id = orders.user_id
-GROUP BY users.email, users.username
-HAVING SUM(orders.amount) > $1
-ORDER BY total_spent DESC
-LIMIT 10;
-```
-
----
-
-## Summary
-
-| Concept | SQL Equivalent | AQL Field | Supported |
-|----------|----------------|------------|------------|
-| SELECT | columns, aggregates | ✅ | ✅ |
-| FROM | source_table | ✅ | ✅ |
-| JOIN | joins | ✅ | ✅ |
-| WHERE | filters | ✅ | ✅ |
-| GROUP BY | group_by / inferred | ✅ | ✅ |
-| HAVING | having | ✅ | ✅ |
-| ORDER BY | order_by | ✅ | ✅ |
-| LIMIT / OFFSET | limit, offset | ✅ | ✅ |
-
----
-
-### ✳️ Notes
-
-- All values in AQL are **safely parameter-bound** before execution.  
-- Whitespace or missing semicolons do **not** affect execution.  
-- Masking is applied **at translation**, not post-processing.

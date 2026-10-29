@@ -1,7 +1,7 @@
 # VaultKit MCP — Usage Guide
 
-How to install, run, connect, and test the VaultKit MCP server. This is the
-operational companion to `MCP_INTEGRATION.md` (which covers the code/design).
+How to install, run, connect, and test the VaultKit MCP server (Python SDK 0.3.0
+or later).
 
 The MCP server exposes VaultKit's governed tools (`vaultkit_discover`,
 `vaultkit_query`, `vaultkit_check_approval`) over the Model Context Protocol, so
@@ -62,15 +62,14 @@ Always create and activate a venv first:
 ```bash
 python3 -m venv vaultkit-env
 source vaultkit-env/bin/activate          # Windows: vaultkit-env\Scripts\activate
-pip install "vaultkit[mcp]"
+pip install "vaultkit[mcp]>=0.3.0"
 ```
 
-> `pip install "vaultkit[mcp]"` only works **once VaultKit is published to
-> PyPI**. Until then, use the Git install below.
+The SDK is published on PyPI. Use 0.3.0 or later: earlier versions can't send
+aggregates, so an agent fetches rows and counts them itself.
 
-**Before PyPI (design partners, private distribution) — install straight from
-Git**, no publishing needed. This is the recommended path during the
-design-partner phase:
+**Alternatively, install straight from Git**, for example to try an unreleased
+change:
 
 ```bash
 python3 -m venv vaultkit-env
@@ -79,7 +78,7 @@ pip install "vaultkit[mcp] @ git+https://github.com/vaultkit-inc/vaultkit-sdk-py
 ```
 
 (For a private repo the user needs access; use an SSH URL or a token-authed
-HTTPS URL. Pin a tag/commit by appending `@v0.1.2` for reproducible installs.)
+HTTPS URL. Pin a tag/commit by appending `@v0.3.0` for reproducible installs.)
 
 ### B. Developers / contributors (working ON the SDK)
 
@@ -161,9 +160,9 @@ npx @modelcontextprotocol/inspector --cli vaultkit-mcp \
   --method tools/list
 ```
 
-Expect three tools, and `vaultkit_query` should carry a populated
-"VALID FIELDS BY DATASET" block. If fields are missing, the control plane was
-unreachable at build time — reconnect once it's up.
+Expect three tools. `vaultkit_query` lists the datasets the token can see, and a
+"VALID FIELDS BY DATASET" block for up to five of them. If it's empty, the control
+plane was unreachable when the tool list was built: reconnect once it's up.
 
 Call a tool for real:
 
@@ -176,9 +175,10 @@ npx @modelcontextprotocol/inspector --cli vaultkit-mcp \
   --method tools/call --tool-name vaultkit_discover
 ```
 
-For `vaultkit_query`, pass arguments (syntax depends on your Inspector version;
-`--tool-arg key=value` or a JSON args flag). The demo query is `customers`
-selecting `email` and `ssn` with a `purpose` — that's where masking fires.
+For `vaultkit_query`, pass arguments (syntax depends on your Inspector version:
+`--tool-arg key=value` or a JSON args flag). Query a dataset with a masked field,
+such as `customers` with `email`, to see masking: whether a field is masked depends
+on your policies and the token, not on the `purpose`.
 
 ---
 
@@ -234,19 +234,89 @@ fully restart it to force a fresh `list_tools`.
 
 ---
 
+## Connect Claude Code
+
+```bash
+claude mcp add vaultkit \
+  -e VAULTKIT_BASE_URL=https://vaultkit.example.com \
+  -e VAULTKIT_TOKEN=<agent-token> \
+  -e VAULTKIT_ORG=<your-org-slug> \
+  -- /absolute/path/to/vaultkit-env/bin/vaultkit-mcp
+```
+
+Run `claude mcp list` to check it connected, and restart the session after SDK or
+dataset changes.
+
+## Connect Cursor
+
+Add the same `mcpServers` block as Claude Desktop to `~/.cursor/mcp.json` (all
+projects) or `.cursor/mcp.json` (one project).
+
+---
+
+## Tools
+
+| Tool | Inputs | Returns |
+| --- | --- | --- |
+| `vaultkit_discover` | `environment` (optional) | The datasets this token can see, each with its visibility (`accessible`, `requires approval`, …). Datasets the token can't access are left out. |
+| `vaultkit_query` | `dataset` (required); `fields`; `filters`; `aggregates` (`{func, field, alias}`); `group_by`; `having`; `order_by` (`{column, direction}`); `limit` (1–10,000, default 100); `purpose` | Rows, or an approval to wait for. |
+| `vaultkit_check_approval` | `request_id` | Whether a queued request is `pending`, `approved` or `denied`. |
+
+Queries use the [intent format](aql_specification.md#the-intent-format-for-agents):
+one dataset, no joins. Filter operators are `eq`, `neq`, `gt`, `gte`, `lt`, `lte`,
+`like`, `in`, `is_null` and `is_not_null`, with nested `AND`/`OR` groups up to five
+levels deep. Aggregates are `count`, `sum`, `avg`, `min` and `max`; only `count` is
+allowed over a masked field.
+
+The `purpose` is recorded with the request and shown to approvers. It doesn't change
+what a policy decides, and rewording it doesn't trigger a new approval.
+
+## Settings
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `VAULTKIT_BASE_URL` | — | Control plane URL (required). |
+| `VAULTKIT_TOKEN` | — | Agent token (required). |
+| `VAULTKIT_ORG` | — | Organization slug (required). |
+| `VAULTKIT_ENVIRONMENT` | `production` | Environment the tool list is built for. |
+| `VAULTKIT_MCP_INCLUDE_DISCOVER`, `…_QUERY`, `…_CHECK_APPROVAL` | `true` | Turn individual tools off. |
+| `VAULTKIT_MCP_SCHEMA_HINTS` | `true` | Include the field list in the query tool's description. |
+| `VAULTKIT_MCP_DEFAULT_PURPOSE` | — | Purpose used when the agent gives none. |
+
+## What the token decides
+
+Everything an agent can see comes from its token, set by an admin with
+`vkit agents tokens create`:
+
+- **Clearance and region** are the token's. Region or clearance values sent by the
+  agent are ignored.
+- **Tenant.** On datasets marked tenant-scoped, a token issued with `--tenant` only
+  ever reads that tenant's rows, and a token without one is denied. Run one MCP server
+  per tenant session, each with its own short-lived token. See
+  [Tenant-scoped datasets](policy_guide.md#tenant-scoped-datasets).
+- **Expiry and revocation.** An expired or revoked token gets `auth_error`; issue a
+  new one.
+
+---
+
 ## Reading results
 
-Every tool result is a structured status from the executor (it never raises):
+Every tool returns a structured `status`; it never throws.
 
-| status | meaning |
-|---|---|
-| `ok` / `approved` | data returned (check `note` for masked fields) |
-| `denied` | policy blocked it — deterministic, don't retry |
-| `pending_approval` | needs human sign-off; poll `vaultkit_check_approval` with the `request_id` |
-| `transport_error` | control plane unreachable — start it / check `VAULTKIT_BASE_URL` |
-| `validation_error` | malformed query |
+| status | Meaning |
+| --- | --- |
+| `ok` | Rows returned. Masked fields come back masked. |
+| `pending_approval` | A person must approve. Wait, using `vaultkit_check_approval` with the `request_id`, then run the same query again. |
+| `queued` | Like `pending_approval`, reported by the SDK's queue handling. |
+| `pending`, `approved`, `denied` | From `vaultkit_check_approval`. |
+| `validation_error`, `client_error` | The query is invalid, or names an unknown dataset. Fix it before retrying. |
+| `not_found` | The dataset or field doesn't exist, or the token isn't allowed to see it. |
+| `forbidden` | A policy denied the request. In SDK 0.3.0 the reason isn't passed through; it's in the control plane's audit log. Don't retry. |
+| `auth_error` | The token is missing, expired or revoked. |
+| `rate_limited`, `server_error`, `transport_error` | Retry later; check the control plane is up. |
+| `bundle_revoked` | The active policy bundle was revoked. An admin deploys a new one. |
 
-A `denied` is a successful governed outcome, not a failure.
+A denial is a governed outcome, not a failure.
 
 ---
 
@@ -260,7 +330,7 @@ A `denied` is a successful governed outcome, not a failure.
 | `spawn ENOENT` / command not found | wrong PATH / wrong env | absolute path to the binary, or `python -m vaultkit.mcp` |
 | `pip install -e` fails, "setup.py not found" | old system pip (21.x); `-e` is dev-only | activate the venv and use its modern pip; end users use `pip install "vaultkit[mcp]"` (no `-e`) |
 | Tools list but fields empty / dataset free-text | control plane unreachable at build time | ensure CP is up, reconnect/relist |
-| A dataset or fields silently missing | transient fetch swallowed to empty (known issue) | reconnect; see hardening backlog §3/§5 |
+| A dataset or fields silently missing | the tool list was built while the control plane was unreachable, or the token can't see them | reconnect; check the token's access |
 
 The `-e`-in-CLI and writable-catalog-in-UI patterns exist specifically because
 the Inspector does **not** reliably inherit your shell environment — set

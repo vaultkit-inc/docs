@@ -1,1362 +1,385 @@
 # VaultKit CLI (`vkit`)
 
-[![Gem Version](https://img.shields.io/badge/gem-v0.1.0-blue.svg)](https://rubygems.org/gems/vaultkitcli)
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Ruby Version](https://img.shields.io/badge/ruby-3.1+-CC342D.svg)](https://www.ruby-lang.org)
+**Applies to:** vkit 1.2.0 with VaultKit 0.9.0-alpha
 
-> Command-line interface for VaultKit — secure, policy-driven data access control plane
+`vkit` is the command-line client for VaultKit. People use it to request governed
+data and approve requests; admins use it to register datasources, scan schemas, and
+build and deploy policy bundles from git.
 
-The VaultKit CLI (`vkit`) is the primary interface for interacting with the VaultKit control plane. It enables users to request governed data access, track approvals, manage datasources, and deploy policy bundles—all while maintaining complete audit trails.
+## Contents
 
----
-
-## 📋 Table of Contents
-
-- [What is VaultKit CLI?](#what-is-vaultkit-cli)
-- [Installation](#installation)
-- [Quick Start](#quick-start)
-- [Authentication](#authentication)
-- [Core Workflows](#core-workflows)
-- [Command Reference](#command-reference)
-- [Configuration](#configuration)
-- [Advanced Usage](#advanced-usage)
+- [Install](#install)
+- [Sign in](#sign-in)
+- [Credentials from the environment](#credentials-from-the-environment)
+- [Requesting data](#requesting-data)
+- [Approvals](#approvals)
+- [Grants](#grants)
+- [Agent tokens](#agent-tokens)
+- [Datasources](#datasources)
+- [Schema scans and the registry](#schema-scans-and-the-registry)
+- [Policy projects and bundles](#policy-projects-and-bundles)
+- [Policy packs](#policy-packs)
+- [Scripting and CI](#scripting-and-ci)
 - [Troubleshooting](#troubleshooting)
-- [Contributing](#contributing)
 
 ---
 
-## 🎯 What is VaultKit CLI?
+## Install
 
-The VaultKit CLI provides command-line access to VaultKit for:
-
-- **Users** - Data analysts, engineers, and administrators
-- **AI Agents** - LLMs and autonomous systems requiring governed data access
-- **Tools & Services** - CI/CD pipelines, data pipelines, and automated workflows
-- **Applications** - Programmatic integration via scripting
-
-| Capability | Description |
-|------------|-------------|
-| **Authentication** | Login, session management, identity verification |
-| **Data Requests** | Submit AQL queries with automatic policy evaluation |
-| **Approval Workflows** | Approve or deny access requests requiring authorization |
-| **Grant Management** | Fetch data using approved, time-limited grants |
-| **Datasource Admin** | Register and manage database connections (admin only) |
-| **Schema Discovery** | Scan datasources and detect schema drift |
-| **Policy Deployment** | Build, validate, and deploy policy bundles |
-| **Audit Queries** | Search and export audit logs |
-
-### Mental Model
-
-VaultKit uses a **request → policy → grant → fetch** workflow:
-
-```
-┌──────────┐    ┌──────────┐    ┌───────┐    ┌───────┐    ┌───────────┐
-│ Request  │ -> │ Policy   │ -> │ Grant │ -> │ Fetch │ -> │ Audit Log │
-│ (AQL)    │    │ Eval     │    │ (JWT) │    │ Data  │    │ (Record)  │
-└──────────┘    └──────────┘    └───────┘    └───────┘    └───────────┘
-```
-
-**Key Principles:**
-- Users **request** data, not queries
-- Policies **decide** what happens (allow, mask, deny, require approval)
-- Grants **authorize** execution with TTLs
-- FUNL **executes** queries safely
-- Everything is **audited**
-
----
-
-## 📦 Installation
-
-### Prerequisites
-
-- **Ruby** 3.1 or higher
-- **VaultKit Control Plane** running and accessible
-
-### Option 1: Install from RubyGems (Recommended)
+Requires Ruby 3.0 or later and a running VaultKit control plane.
 
 ```bash
-gem install vaultkitcli
-```
-
-### Verify Installation
-
-```bash
-vkit --version
-# => VaultKit CLI v0.1.0
-
-vkit --help
+gem install vaultkit
+vkit --version      # vkit 1.2.0
+vkit help           # every command; vkit help <command> for one
 ```
 
 ---
 
-## ⚡ Quick Start
-
-### 1. Set Environment Variables
+## Sign in
 
 ```bash
-export VKIT_API_URL=http://localhost:3000
+vkit login [--endpoint URL] [--email EMAIL]
 ```
 
-For production:
-```bash
-export VKIT_API_URL=https://vaultkit.company.com
-```
+The endpoint comes from `--endpoint`, then `VKIT_ENDPOINT`, then the last endpoint
+you used, then a prompt. The control plane decides how you sign in:
 
-### 2. Authenticate
+- **SSO:** `vkit` opens your browser and waits for you to finish signing in.
+- **Email and password:** it asks for your email (unless you passed `--email`) and
+  your password. The password is never accepted as an option.
+- **API token:** it reads `VAULTKIT_TOKEN`, or asks for a token.
 
-```bash
-vkit login --endpoint http://localhost:3000 --email analyst@company.com
-```
+| Command | What it does |
+| --- | --- |
+| `vkit whoami` | Shows who you're signed in as. If the control plane can't be reached, it shows the cached identity with a warning. |
+| `vkit logout` | Signs out of the saved login (the token is deleted; the endpoint is kept). |
+| `vkit reset` | Asks for confirmation, then deletes every stored credential and setting. |
 
-You'll receive a prompt for your password or be redirected to SSO.
-
-### 3. Submit Your First Request
-
-```bash
-vkit request --aql '{
-  "source_table": "customers",
-  "columns": ["id", "email", "total_spend"],
-  "limit": 10
-}'
-```
-
-### 4. Fetch Results
-
-If granted immediately:
-```bash
-vkit fetch --grant gr_abc123xyz
-```
-
-If approval required:
-```bash
-# Check status
-vkit requests list --state pending
-
-# After approval
-vkit fetch --grant gr_abc123xyz
-```
+Credentials are stored in the macOS Keychain, in the Secret Service on Linux when
+`secret-tool` is installed, or otherwise in `~/.vkit/credentials.json` (mode 0600).
 
 ---
 
-## 🔐 Authentication
+## Credentials from the environment
 
-### `vkit login`
-
-Authenticate with the VaultKit control plane.
-
-```bash
-vkit login --endpoint http://localhost:3000 --email analyst@acme.com
-```
-
-**Options:**
-- `--endpoint` — VaultKit API endpoint (can also use `VKIT_API_URL`)
-- `--email` — Email address for authentication
-
-**SSO Integration:**
-
-If your organization uses SSO, you'll be redirected to your identity provider:
+Scripts, CI jobs and demos can supply credentials for one command or shell without
+touching your saved login:
 
 ```bash
-vkit login --endpoint https://vaultkit.company.com --email you@company.com
-
-# Output:
-# Opening browser for SSO authentication...
-# ✓ Authentication successful
-# Session expires: 2024-01-15 18:00:00 UTC
+export VKIT_ENDPOINT=https://vaultkit.example.com
+export VKIT_TOKEN=<a VaultKit token>
+vkit request < query.json
 ```
 
-### `vkit whoami`
+- **Both variables are needed.** Together they replace the saved login for every
+  command except `vkit login` and `vkit logout`. One without the other is an error.
+- **A notice goes to stderr** while they're in use. The token is never printed.
+- **To act as someone else for one command,** set the token on that command:
+  `VKIT_TOKEN="$APPROVER_TOKEN" vkit approval:approve 42`.
+- **Unset both** to go back to your saved login.
 
-Display the currently authenticated user and session information.
-
-```bash
-vkit whoami
-```
-
-**Output:**
-```
-👤 analyst@acme.com (role: analyst, org: acme)
-```
-
-**JSON Format:**
-```bash
-vkit whoami --format json
-```
-
-**Output:**
-```json
-{
-  "email": "analyst@acme.com",
-  "role": "analyst",
-  "org": "acme"
-}
-```
-
-### `vkit logout`
-
-Clear stored credentials and end session.
-
-```bash
-vkit logout
-```
+Requires vkit 1.1.6 or later.
 
 ---
 
-## 🔄 Core Workflows
+## Requesting data
 
-### Workflow 1: Immediate Access (Auto-Approved)
-
-```bash
-# 1. Submit request
-vkit request --aql '{
-  "source_table": "public_reports",
-  "columns": ["report_id", "title", "published_date"],
-  "limit": 10
-}'
-
-# Output:
-# ✓ Request granted immediately
-# Grant ID: gr_abc123xyz
-# TTL: 4 hours
-# Use: vkit fetch --grant gr_abc123xyz
-
-# 2. Fetch data
-vkit fetch --grant gr_abc123xyz --format table
-```
-
-### Workflow 2: Approval Required
+### `vkit request`
 
 ```bash
-# 1. Submit request
-vkit request --aql '{
-  "source_table": "financial_transactions",
-  "columns": ["transaction_id", "amount", "customer_id"],
-  "filters": [{"field": "amount", "operator": "gt", "value": 10000}]
-}'
-
-# Output:
-# ⏳ Approval required
-# Request ID: req_20240115_xyz789
-# Approver: finance_manager
-# Reason: Financial data requires manager approval
-# Status: PENDING
-
-# 2. Check status
-vkit requests list --state pending
-
-# 3. After approval, fetch data
-vkit fetch --grant gr_approved_abc123
+vkit request --aql '<AQL JSON>' [--format table|json]
+vkit request < query.json
 ```
 
-### Workflow 3: Denied Access
+The query is [AQL](aql_specification.md). Policy decides what happens:
+
+| Result | Output | Next step |
+| --- | --- | --- |
+| Granted | `✅ ACCESS GRANTED`, the grant ref, expiry and masked fields | `vkit fetch --grant <ref>` |
+| OK | `✅ OK — N rows` and the rows. You already had a grant for this exact query, so it was reused. | — |
+| Queued | `⏳ QUEUED for approval`, the request ID, the approver groups and the reason | Wait for approval, then run the same request again |
+| Denied | `❌ DENIED` and the reason. Exit code 2. | — |
+
+With `--format json`, the response is printed as JSON (a denial still exits 2).
+
+Your role, clearance, region and tenant come from your account or agent token, and
+the environment and dataset region from the datasource. A request can't set them:
+the older `--env`, `--requester_region`, `--dataset_region` and
+`--requester_clearance` options are still accepted, but the control plane ignores
+them.
+
+### `vkit requests list`
 
 ```bash
-vkit request --aql '{
-  "source_table": "payment_cards",
-  "columns": ["card_number", "cvv"],
-  "limit": 10
-}'
-
-# Output:
-# ❌ Request denied
-# Reason: Direct payment card data access forbidden
-# Policy: pci_dss_restrictions
-# Alternative: Use tokenized_card_id field instead
-# Audit ID: audit_20240115_denied_123
+vkit requests list [--state all|pending|approved|denied] [--format table|json]
 ```
+
+Your past requests, newest first.
 
 ---
 
-## Command Reference
+## Approvals
 
-### Authentication Commands
+When a policy requires approval, someone in each named approval group must sign off.
+Admins and users who can approve any request can sign too. Nobody can approve their
+own request, and each group's sign-off has to come from a different person. You can
+also approve in the console, under **Approvals**.
 
-#### `vkit login`
+| Command | What it does |
+| --- | --- |
+| `vkit approval:list [--state pending\|approved\|denied\|all]` | Lists approvals (default: pending), with the requester, fields, required and outstanding groups, and the reason. |
+| `vkit approval:approve ID [--ttl SECONDS]` | Signs off for one group you belong to. The grant is issued once every group has signed. `--ttl` can shorten the grant, never extend it past the policy's TTL. |
+| `vkit approval:deny ID [--reason TEXT]` | Denies the whole request. Asks for a reason if you don't give one. |
+| `vkit approvals:watch [--interval 3] [--since 10m] [--format table\|json] [--pretty]` | Watches for new pending approvals. |
 
-Authenticate with VaultKit.
-
-```bash
-vkit login --endpoint <URL> --email <EMAIL>
-```
-
-**Options:**
-- `--endpoint, -e` — VaultKit API endpoint (default: `$VKIT_API_URL`)
-- `--email` — User email address
-- `--password` — Password (prompted if not provided)
-
-**Examples:**
-```bash
-# Interactive login
-vkit login --endpoint http://localhost:3000 --email analyst@company.com
-
-# Non-interactive (CI/CD)
-vkit login --endpoint https://vaultkit.company.com --email bot@company.com --password $BOT_PASSWORD
-```
-
-#### `vkit whoami`
-
-Display current user information.
-
-```bash
-vkit whoami [--format json|table]
-```
-
-**Examples:**
-```bash
-vkit whoami
-vkit whoami --format json
-```
-
-#### `vkit logout`
-
-End session and clear credentials.
-
-```bash
-vkit logout
-```
+`ID` is the number `approval:list` shows. Approving fails if the policy bundle
+changed while the request waited; the requester then asks again.
 
 ---
 
-### Data Request Commands
+## Grants
 
-#### `vkit request`
+A grant is VaultKit's permission to run one exact query, for a limited time.
 
-Submit a governed data request using AQL.
+| Command | What it does |
+| --- | --- |
+| `vkit fetch --grant REF [--format json\|table]` | Runs the granted query and prints the rows (default: JSON). |
+| `vkit grant:revoke --grant REF [--reason TEXT] [--force]` | Admin only. Revokes a grant before it expires. Asks for confirmation unless `--force`. |
 
-```bash
-vkit request --aql <AQL_JSON> [OPTIONS]
-```
-
-**Options:**
-- `--aql` — AQL JSON payload (inline or via STDIN)
-- `--env` — Environment (default: `production`)
-- `--requester_region` — Your geographic region (e.g., `US`, `EU`)
-- `--dataset_region` — Dataset's geographic region
-- `--requester_clearance` — Clearance level: `low`, `high`, `admin`
-- `--format` — Output format: `json`, `table` (default: `table`)
-
-**Inline AQL:**
-```bash
-vkit request \
-  --aql '{"source_table":"customers","columns":["email","total_spend"],"limit":100}' \
-  --requester_region EU \
-  --dataset_region EU \
-  --requester_clearance high
-```
-
-**AQL via STDIN:**
-```bash
-cat query.json | vkit request
-
-# Or
-echo '{"source_table":"orders","columns":["order_id","total"]}' | vkit request
-```
-
-**AQL from File:**
-```bash
-vkit request --aql "$(cat queries/customer_analysis.json)"
-```
-
-**Possible Outcomes:**
-
-| Outcome | Description | Next Step |
-|---------|-------------|-----------|
-| ✅ **Granted** | Immediate access | `vkit fetch --grant <GRANT_ID>` |
-| ⏳ **Queued** | Requires approval | Wait for approval, check with `vkit requests list` |
-| ❌ **Denied** | Policy disallows | Review policy restrictions |
-
-#### `vkit requests list`
-
-View your request history.
-
-```bash
-vkit requests list [--state STATE] [--format FORMAT]
-```
-
-**Options:**
-- `--state` — Filter by state: `all`, `pending`, `approved`, `denied` (default: `all`)
-- `--format` — Output format: `json`, `table` (default: `table`)
-- `--limit` — Number of results (default: 50)
-
-**Examples:**
-```bash
-# All requests
-vkit requests list
-
-# Only pending requests
-vkit requests list --state pending
-
-# Approved requests in JSON
-vkit requests list --state approved --format json
-
-# Last 100 requests
-vkit requests list --limit 100
-```
-
-#### `vkit requests show`
-
-Show details for a specific request.
-
-```bash
-vkit requests show <REQUEST_ID>
-```
-
-**Example:**
-```bash
-vkit requests show req_20240115_xyz789
-```
+A grant stops working when it expires, is revoked, or the active policy bundle
+changes. Asking the same question again within the grant's lifetime reuses it. See
+[Approvals and grants](approvals_and_grants.md).
 
 ---
 
-### Approval Commands
+## Agent tokens
 
-#### `vkit approval:list`
+Agents authenticate with agent tokens rather than a user login. Only admins can
+issue and revoke them.
 
-List approval requests you are authorized to act on.
-
-```bash
-vkit approval:list [--state STATE] [--format FORMAT]
-```
-
-**Options:**
-- `--state` — Filter by state: `all`, `pending`, `approved`, `denied` (default: `pending`)
-- `--format` — Output format: `json`, `table` (default: `table`)
-
-**Examples:**
-```bash
-# Pending approvals
-vkit approval:list
-
-# All approvals you've handled
-vkit approval:list --state all
-
-# JSON output for scripting
-vkit approval:list --format json
-```
-
-#### `vkit approval:approve`
-
-Approve a pending request.
+### `vkit agents tokens create`
 
 ```bash
-vkit approval:approve <REQUEST_ID> [--ttl SECONDS] [--notes "..."]
+vkit agents tokens create --name NAME [--expires-in 24h] [--tenant ID] \
+  [--clearance low|medium|high] [--region EU|US|CA|APAC]
 ```
 
-**Options:**
-- `--ttl` — Grant lifetime in seconds (default: 3600)
-- `--notes` — Approval notes (optional)
+- `--expires-in` takes hours or days: `1h`, `24h`, `30d`.
+- `--tenant` confines the token to one tenant's rows on datasets marked with
+  `tenant_column`. See [Tenant-scoped datasets](policy_guide.md#tenant-scoped-datasets).
+- `--clearance` and `--region` are what policies see as `requester_clearance` and
+  `requester_region`.
+- Tenant, clearance and region are fixed when the token is issued; the agent can't
+  change them. Every agent token has the role `agent` (the `--role` option is
+  ignored by the control plane).
+- The secret is shown once.
 
-**Examples:**
-```bash
-# Basic approval
-vkit approval:approve 42
-
-# With custom TTL and notes
-vkit approval:approve 42 \
-  --ttl 7200 \
-  --notes "Approved for Q4 analysis. Limited to aggregate data only."
-```
-
-#### `vkit approval:deny`
-
-Deny a pending request.
+For an assistant that serves several customers, issue a short-lived token per
+customer session:
 
 ```bash
-vkit approval:deny <REQUEST_ID> --reason "..."
+vkit agents tokens create --name support-assistant --tenant org_42 --expires-in 1h
 ```
 
-**Options:**
-- `--reason` — Required explanation for denial
+### `vkit agents tokens list` and `revoke`
 
-**Examples:**
 ```bash
-vkit approval:deny 42 --reason "Insufficient business justification"
-
-vkit approval:deny 42 --reason "Request violates data minimization policy"
+vkit agents tokens list [--format table|json]
+vkit agents tokens revoke --token ID_OR_PREFIX [--force]
 ```
+
+`revoke` asks you to type `revoke` to confirm, unless `--force`.
 
 ---
 
-### Data Fetch Commands
+## Datasources
 
-#### `vkit fetch`
+Admin only. VaultKit stores the database credential (encrypted) and runs queries
+itself, so people and agents never hold it. PostgreSQL is supported today.
 
-Fetch data using a previously issued grant.
+### `vkit datasource add`
 
-```bash
-vkit fetch --grant <GRANT_REF> [--format FORMAT]
-```
+Every option is required.
 
-**Options:**
-- `--grant, -g` — Grant reference or ID (required)
-- `--format` — Output format: `json`, `table`, `csv` (default: `table`)
-- `--output, -o` — Write to file instead of STDOUT
-
-**Examples:**
-```bash
-# Fetch and display as table
-vkit fetch --grant gr_abc123xyz
-
-# Fetch as JSON
-vkit fetch --grant gr_abc123xyz --format json
-
-# Fetch and save to CSV
-vkit fetch --grant gr_abc123xyz --format csv --output results.csv
-
-# Pipe to jq for processing
-vkit fetch --grant gr_abc123xyz --format json | jq '.data[] | select(.revenue > 1000)'
-```
-
----
-
-### Datasource Management (Admin Only)
-
-#### `vkit datasource add`
-
-Register a new datasource.
-
-```bash
-vkit datasource add --id <ID> --engine <ENGINE> [OPTIONS]
-```
-
-**Options:**
-- `--id` — Unique datasource identifier (required)
-- `--engine` — Database engine: `postgres`, `mysql`, `snowflake`, `bigquery` (required)
-- `--username` — Database username
-- `--password` — Database password
-- `--config` — JSON configuration (host, port, database, etc.)
-- `--credential-backend` — Secret backend: `vaultkit`, `vault`, `aws-secrets`
-
-**Examples:**
-
-**PostgreSQL (Built-in credential storage):**
 ```bash
 vkit datasource add \
-  --id production_pg \
+  --id prod_db \
   --engine postgres \
-  --username vaultkit_ro \
-  --password $DB_PASSWORD \
-  --config '{
-    "host": "db.production.internal",
-    "port": 5432,
-    "database": "analytics",
-    "ssl_mode": "require",
-    "connect_timeout": 10
-  }'
+  --username vaultkit_reader \
+  --password "$DB_PASSWORD" \
+  --config '{"host": "db.internal", "port": 5432, "database": "app"}' \
+  --region US \
+  --environment production
 ```
 
-**MySQL:**
-```bash
-vkit datasource add \
-  --id production_mysql \
-  --engine mysql \
-  --username app_reader \
-  --password $MYSQL_PASSWORD \
-  --config '{
-    "host": "mysql.production.internal",
-    "port": 3306,
-    "database": "ecommerce",
-    "ssl_mode": "REQUIRED"
-  }'
-```
+- `--region`: `EU`, `US`, `CA` or `APAC`. Policies see it as `dataset_region`.
+- `--environment`: `production`, `staging`, `development` or `sandbox`. Policies see
+  it as `environment`.
+- Use a read-only database role: VaultKit only reads.
 
-#### `vkit datasource list`
-
-List all registered datasources.
-
-```bash
-vkit datasource list [--format FORMAT]
-```
-
-**Examples:**
-```bash
-vkit datasource list
-vkit datasource list --format json
-```
-
-#### `vkit datasource get`
-
-Get details for a specific datasource.
-
-```bash
-vkit datasource get <DATASOURCE_ID>
-```
-
-**Example:**
-```bash
-vkit datasource get production_pg
-```
-
-#### `vkit datasource test`
-
-Test connectivity to a datasource.
-
-```bash
-vkit datasource test <DATASOURCE_ID>
-```
-
-**Example:**
-```bash
-vkit datasource test production_pg
-
-# Output:
-# Testing connection to production_pg...
-# ✓ Connection successful
-# Engine: PostgreSQL 15.3
-# Latency: 45ms
-```
-
-#### `vkit datasource remove`
-
-Remove a datasource (admin only).
-
-```bash
-vkit datasource remove <DATASOURCE_ID> [--force]
-```
-
-**Options:**
-- `--force` — Skip confirmation prompt
-
-**Example:**
-```bash
-vkit datasource remove old_staging_db --force
-```
+| Command | What it does |
+| --- | --- |
+| `vkit datasource list` | Lists datasources. |
+| `vkit datasource get ID` | Shows one datasource. |
 
 ---
 
-### Schema Discovery Commands
+## Schema scans and the registry
 
-#### `vkit scan`
+The registry lists each dataset's fields with a sensitivity and a category, which
+policies act on. It lives in your policy project as `datasets/registry.yaml`.
 
-Scan a datasource and detect schema drift.
+### `vkit scan`
 
 ```bash
-vkit scan <DATASOURCE_ID> [--mode MODE]
+vkit scan DATASOURCE [--mode diff_only|apply]
 ```
 
-**Options:**
-- `--mode` — Scan mode: `diff`, `apply` (default: `diff`)
-- `--format` — Output format: `json`, `table` (default: `table`)
+`diff_only` (the default) shows what changed since the last scan: added (`+`),
+removed (`-`) and changed (`~`) fields. `apply` saves the scan to the control
+plane's registry.
 
-**Modes:**
+The scan labels each column from its name, type and table:
 
-| Mode | Description |
-|------|-------------|
-| `diff` | Show changes without applying (safe, read-only) |
-| `apply` | Update baseline registry with discovered schema |
+- **Sensitivity:** `high`, `medium`, `low` or `unknown`.
+- **Category:** `pii`, `financial`, `credential`, `internal` or `unknown`.
 
-**Examples:**
+It reads names and types only, never data. `unknown` means a column that could hold
+anything (a `payload` jsonb, a `notes` text) that it couldn't place: review it.
 
-**Discover Changes:**
+A rescan keeps labels you've reviewed (from a deployed bundle or a manual edit). Where
+the classifier disagrees, it lists a suggestion instead of changing the label:
+
+```
+  api_keys                 ✓
+    ? key_value  low/internal → high/credential (suggested)
+```
+
+See [Schema discovery](schema_discovery.md).
+
+### `vkit registry export` and `diff`
+
 ```bash
-vkit scan production_pg
-
-# Output:
-# Scanning datasource: production_pg
-# 
-# Schema Drift Detected:
-# 
-# + Dataset: customers
-#     + Field: phone_number (varchar) [PII] ⚠️  NEW - requires policy
-#     ~ Field: email (text → varchar) [PII] ✓ Already masked
-# 
-# + Dataset: user_sessions
-#     + Field: ip_address (inet) [PII] ⚠️  NEW - requires policy
-#     + Field: user_agent (text) [INTERNAL] ⚠️  NEW - requires policy
-# 
-# Summary: 2 new datasets, 3 new fields, 1 modified field
+vkit registry export [--dir .] [--out PATH] [--force]
+vkit registry diff [--dir .] [--format human|json]
 ```
 
-**Apply Changes:**
-```bash
-vkit scan production_pg --mode apply
-
-# Output:
-# ✓ Baseline registry updated
-# Next steps:
-#   1. Review new fields: customers.phone_number, user_sessions.ip_address
-#   2. Update policies in Git: config/policies/
-#   3. Build new bundle: vkit policy bundle
-#   4. Deploy bundle: vkit policy deploy
-```
-
-**Scan All Datasources:**
-```bash
-for ds in $(vkit datasource list --format json | jq -r '.[].id'); do
-  echo "Scanning $ds..."
-  vkit scan $ds
-done
-```
+`export` writes the control plane's registry to `datasets/registry.yaml`, offering to
+overwrite, show a diff or stop if the file exists. `diff` compares the two and exits 0
+when they match, 1 when they differ and 2 on error.
 
 ---
 
-### Policy Management Commands
+## Policy projects and bundles
 
-#### `vkit policy bundle`
+Policies are YAML files in git. You compile them, with the registry, into a bundle and
+deploy it; the bundle version is the git commit. See the
+[Policy Guide](policy_guide.md).
 
-Compile policies and registry into a deployable bundle.
-
-```bash
-vkit policy bundle [OPTIONS]
-```
-
-**Options:**
-- `--policies_dir` — Path to policies directory (default: `config/policies`)
-- `--registry_dir` — Path to registry files (default: `config`)
-- `--datasources_dir` — Path to datasource configs (default: `config/datasources`)
-- `--out` — Output bundle file (default: `dist/policy_bundle.json`)
-- `--org` — Organization identifier (optional, defaults to logged-in user's org)
-
-**Example:**
-```bash
-# Using logged-in user's org
-vkit policy bundle \
-  --policies_dir config/policies \
-  --registry_dir config \
-  --datasources_dir config/datasources \
-  --out dist/policy_bundle.json
-
-# Specifying org explicitly
-vkit policy bundle \
-  --policies_dir config/policies \
-  --registry_dir config \
-  --datasources_dir config/datasources \
-  --out dist/policy_bundle.json \
-  --org acme
-```
-
-#### `vkit policy validate`
-
-Validate a policy bundle without deploying.
+### `vkit init`
 
 ```bash
-vkit policy validate --bundle <BUNDLE_FILE>
+vkit init [--dir .] [--with starter,ai_safety]
 ```
 
-**Example:**
-```bash
-vkit policy validate --bundle dist/policy_bundle.json
+Creates `config/policies/`, `datasets/registry.yaml`, `dist/` and `.vkit/`, and
+installs the packs you name (plus their dependencies). With no `--with`, it installs
+`starter`.
 
-# Output:
-# Validating policy bundle...
-# ✓ Schema validation passed
-# ✓ Policy syntax valid
-# ✓ No circular dependencies
-# ✓ All datasources referenced
-# Bundle is valid and ready to deploy
-```
-
-#### `vkit policy deploy`
-
-Deploy a policy bundle to the control plane.
+### `vkit policy bundle`
 
 ```bash
-vkit policy deploy --bundle <BUNDLE_FILE> [OPTIONS]
+vkit policy bundle [--policies_dir config/policies] [--registry_dir datasets] \
+  [--out dist/policy_bundle.json] [--org ORG]
 ```
 
-**Options:**
-- `--bundle` — Path to bundle file (required)
-- `--org` — Organization identifier (optional, defaults to logged-in user's org)
-- `--activate` — Immediately activate bundle
-- `--dry-run` — Validate deployment without activating
+Needs a login, and commits in git: the bundle version is `git rev-parse HEAD`.
+`--org` must match the org you're signed in to.
 
-**Examples:**
-```bash
-# Deploy and activate (using logged-in user's org)
-vkit policy deploy \
-  --bundle dist/policy_bundle.json \
-  --activate
+The bundle is refused, with every problem listed, when a policy can never match or a
+dataset would leak across tenants:
 
-# Deploy with explicit org
-vkit policy deploy \
-  --bundle dist/policy_bundle.json \
-  --org acme \
-  --activate
+- a key the engine ignores, such as `match.fields.category` (use `contains`);
+- a tag or sensitivity no field has and the classifier can't produce;
+- a dataset that isn't in `datasets/registry.yaml`;
+- an invalid environment, region or clearance value, or `time` under top-level
+  `context` (it works under `match.context`);
+- a mask policy with no fields to mask;
+- a `tenant_column` that isn't one of its dataset's fields, or a dataset that has
+  another dataset's tenant column but isn't marked (`tenant_column: false` declares a
+  table every tenant may read).
 
-# Dry run (test deployment)
-vkit policy deploy \
-  --bundle dist/policy_bundle.json \
-  --dry-run
-```
+If the problems are in pack policies, `vkit policy pack upgrade` replaces them.
 
-#### `vkit policy list`
-
-List active policy bundles.
+### `vkit policy validate`, `deploy` and `revoke`
 
 ```bash
-vkit policy list
+vkit policy validate [--bundle dist/policy_bundle.json] [--schema PATH]
+vkit policy deploy [--bundle dist/policy_bundle.json] [--no-activate]
+vkit policy revoke --bundle_version VERSION [--reason TEXT] [--force]
 ```
 
-#### `vkit policy show`
-
-Show details of a specific policy.
-
-```bash
-vkit policy show <POLICY_ID>
-```
+- `deploy` uploads the bundle and makes it active; `--no-activate` only uploads it.
+  A bundle version can only be deployed once, so commit a change before redeploying.
+- `revoke` revokes a bundle version: grants issued under it stop working.
 
 ---
 
-## Policy Pack Commands
+## Policy packs
 
-### Initialize With Packs
-```bash
-vkit init --with starter
-```
+Packs are ready-made, versioned policies. See [Policy Packs](pack_system.md).
 
-If no packs specified:
-```
-ℹ️  No packs specified. Use --with starter for secure defaults.
-```
+| Command | What it does |
+| --- | --- |
+| `vkit policy pack list` | Shows available packs, and which are installed or have an upgrade. |
+| `vkit policy pack info NAME` | Shows a pack's version, dependencies and policies. |
+| `vkit policy pack add NAME [--force]` | Installs a pack into `config/policies/`. |
+| `vkit policy pack remove NAME [--force]` | Removes a pack's files (only the ones it installed). |
+| `vkit policy pack upgrade NAME [--force]` | Replaces an installed pack with the shipped version. |
 
-### Pack Commands
+Every pack command takes `--dir` (default `.`). Commit the changes, then bundle and
+deploy.
 
-**List Packs**
-```bash
-vkit policy pack list
-```
+---
 
-Output:
-```
-✓ starter v1.0.0
-⚠ ai_safety (installed v1.0.0, available v1.1.0)
-  financial_compliance (not installed)
-```
+## Scripting and CI
 
-**Install Pack**
-```bash
-vkit policy pack add starter
-```
+In CI, use [credentials from the environment](#credentials-from-the-environment)
+rather than `vkit login`, which needs an interactive terminal for passwords. For
+example, in GitHub Actions:
 
-**Remove Pack**
-```bash
-vkit policy pack remove starter
-```
-
-**Upgrade Pack**
-```bash
-vkit policy pack upgrade starter
-```
-
-Upgrade all:
-```bash
-vkit policy pack upgrade
-```
-
-### Upgrade Safety
-
-**`--dry-run`**
-
-Preview upgrade:
-```bash
-vkit policy pack upgrade starter --dry-run
-```
-
-Shows what would change without modifying files.
-
-**`--force`**
-
-Overwrite existing pack-installed files:
-```bash
-vkit policy pack upgrade starter --force
-```
-
-⚠ Will overwrite pack-managed policy files.
-
-### How Packs Install Files
-
-Installed files are written to:
-```
-config/policies/
-```
-
-Using deterministic names:
-```
-starter__01__mask_pii.yaml
-starter__02__cross_region.yaml
-```
-
-This ensures:
-
-* File ownership tracking
-* Safe removal
-* Deterministic upgrades
-
-### Pack State File
-
-VaultKit tracks installed packs in:
-```
-.vkit/packs.yaml
-```
-
-Example:
+{% raw %}
 ```yaml
-format_version: v1
-installed_packs:
-  starter:
-    version: "1.0.0"
-    layer: foundation
-    installed_at: "2026-02-15T15:00:00Z"
-    pack_checksum: "abc123..."
-    files:
-      - path: config/policies/starter__01__mask_pii.yaml
-        policy_id: mask_pii
+- name: Deploy policies
+  env:
+    VKIT_ENDPOINT: https://vaultkit.example.com
+    VKIT_TOKEN: ${{ secrets.VKIT_TOKEN }}
+  run: |
+    gem install vaultkit
+    vkit policy bundle
+    vkit policy deploy
 ```
+{% endraw %}
 
-This enables:
+Exit codes: `0` success; `1` an error or invalid usage; `2` a denied request, or a
+registry diff error; `130` interrupted. `vkit registry diff` exits `1` when the files
+differ, which suits drift checks in CI.
 
-* Drift detection
-* Safe removal
-* Controlled upgrade
-* Bundle reproducibility
-
-### Recommended Workflow
-```bash
-vkit init --with starter
-vkit policy pack add ai_safety
-vkit scan production_db --apply
-vkit policy bundle
-vkit policy deploy
-```
-
----
-
-### Policy Lifecycle Commands
-
-#### `vkit policy deploy`
-
-Upload a policy bundle to the control plane.
-```bash
-vkit policy deploy --bundle dist/policy_bundle.json
-```
-
-This creates a new version in `uploaded` state.
-
-**Options:**
-- `--bundle` - Path to bundle file (required)
-- `--org` - Organization identifier (optional)
-
-**Example:**
-```bash
-vkit policy deploy --bundle dist/policy_bundle.json --org acme
-```
-
----
-
-#### `vkit policy activate`
-
-Activate a specific bundle version.
-```bash
-vkit policy activate --bundle-version v12
-```
-
-**Only one bundle may be active at a time.**
-
-Activation automatically marks the previously active bundle as `superseded`.
-
-**Options:**
-- `--bundle-version` - Version to activate (required)
-- `--org` - Organization identifier (optional)
-- `--force` - Skip confirmation prompt
-
-**Example:**
-```bash
-vkit policy activate --bundle-version v12 --force
-```
-
----
-
-#### `vkit policy rollback`
-
-Activate a previous version.
-```bash
-vkit policy rollback --to v11
-```
-
-Rollback is equivalent to activating an earlier version.
-
-**Options:**
-- `--to` - Target version (required)
-- `--reason` - Rollback reason (required)
-- `--org` - Organization identifier (optional)
-
-**Example:**
-```bash
-vkit policy rollback --to v11 --reason "v12 had masking issues"
-```
-
----
-
-#### `vkit policy revoke`
-
-Revoke a deployed policy bundle.
-```bash
-vkit policy revoke \
-  --bundle-version v12 \
-  --reason "Incorrect masking rule exposed sensitive data"
-```
-
-**Revocation:**
-
-- Permanently blocks the bundle
-- Invalidates associated grants
-- Emits an audit event
-
-**Revoked bundles cannot be reactivated.**
-
-**Options:**
-- `--bundle-version` - Version to revoke (required)
-- `--reason` - Revocation reason (required)
-- `--org` - Organization identifier (optional)
-- `--force` - Skip confirmation prompt
-
-**Example:**
-```bash
-vkit policy revoke \
-  --bundle-version v12 \
-  --reason "Critical security flaw in masking logic" \
-  --force
-```
-
-**⚠️ Warning:** This action is irreversible. Use with caution.
----
-
-### Audit Commands
-
-#### `vkit audit query`
-
-Search audit logs.
-
-```bash
-vkit audit query [OPTIONS]
-```
-
-**Options:**
-- `--user` — Filter by user email
-- `--action` — Filter by action: `granted`, `denied`, `pending`
-- `--dataset` — Filter by dataset name
-- `--days` — Look back N days (default: 7)
-- `--limit` — Number of results (default: 100)
-- `--format` — Output format: `json`, `table`, `csv`
-
-**Examples:**
-```bash
-# All queries by a user
-vkit audit query --user analyst@company.com --days 30
-
-# Denied access attempts
-vkit audit query --action denied --days 7
-
-# Access to specific dataset
-vkit audit query --dataset customers --action granted
-
-# Export to CSV
-vkit audit query --user analyst@company.com --format csv --output audit_report.csv
-```
-
-#### `vkit audit export`
-
-Export audit logs for compliance reporting.
-
-```bash
-vkit audit export --start-date <DATE> --end-date <DATE> [OPTIONS]
-```
-
-**Options:**
-- `--start-date` — Start date (YYYY-MM-DD)
-- `--end-date` — End date (YYYY-MM-DD)
-- `--format` — Output format: `json`, `csv` (default: `csv`)
-- `--output` — Output file path
-
-**Example:**
-```bash
-vkit audit export \
-  --start-date 2024-01-01 \
-  --end-date 2024-01-31 \
-  --format csv \
-  --output compliance_reports/january_2024.csv
-```
-
----
-
-## Advanced Usage
-
-### Scripting with vkit
-
-**Batch Request Processing:**
-
-```bash
-#!/bin/bash
-# process_requests.sh
-
-REQUESTS=(
-  '{"source_table":"customers","columns":["id","email"],"limit":100}'
-  '{"source_table":"orders","columns":["order_id","total"],"limit":100}'
-  '{"source_table":"products","columns":["product_id","name"],"limit":100}'
-)
-
-for aql in "${REQUESTS[@]}"; do
-  echo "Processing: $aql"
-  vkit request --aql "$aql" --format json | jq -r '.grant_id' >> grants.txt
-done
-
-echo "Generated grants:"
-cat grants.txt
-```
-
-**Automated Approvals (for testing):**
-
-```bash
-#!/bin/bash
-# auto_approve_pending.sh
-
-PENDING=$(vkit approval:list --state pending --format json)
-
-echo "$PENDING" | jq -r '.[].id' | while read -r request_id; do
-  echo "Approving request: $request_id"
-  vkit approval:approve "$request_id" --ttl 3600 --notes "Auto-approved for testing"
-done
-```
-
-### Integration with CI/CD
-
-**GitHub Actions Example:**
-
-```yaml
-name: Deploy VaultKit Policies
-
-on:
-  push:
-    branches: [main]
-    paths:
-      - 'config/policies/**'
-      - 'config/registry.yaml'
-
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      
-      - name: Install vkit CLI
-        run: gem install vaultkitcli
-      
-      - name: Authenticate
-        run: |
-          vkit login \
-            --endpoint ${{ secrets.VKIT_API_URL }} \
-            --email ${{ secrets.VKIT_BOT_EMAIL }} \
-            --password ${{ secrets.VKIT_BOT_PASSWORD }}
-      
-      - name: Build Policy Bundle
-        run: |
-          vkit policy bundle \
-            --policies_dir config/policies \
-            --registry_dir config \
-            --out policy_bundle.json \
-            --org ${{ secrets.ORG_ID }}
-      
-      - name: Validate Bundle
-        run: vkit policy validate --bundle policy_bundle.json
-      
-      - name: Deploy Bundle
-        run: |
-          vkit policy deploy \
-            --bundle policy_bundle.json \
-            --org ${{ secrets.ORG_ID }} \
-            --activate
-```
-
-### Using jq for Advanced Filtering
-
-**Extract specific fields:**
-```bash
-vkit requests list --format json | jq '.[] | select(.state == "approved") | {id, dataset, requester}'
-```
-
-**Count requests by state:**
-```bash
-vkit requests list --format json | jq 'group_by(.state) | map({state: .[0].state, count: length})'
-```
-
-**Find high-value transactions:**
-```bash
-vkit fetch --grant gr_abc123 --format json | jq '.data[] | select(.amount > 10000)'
-```
+`vkit fetch --format json` prints a status line and metadata before the rows, so
+strip those before piping to `jq`.
 
 ---
 
 ## Troubleshooting
 
-### Common Issues
+| Message | Cause |
+| --- | --- |
+| `Not logged in. Run vkit login.` | No saved login, and no `VKIT_ENDPOINT`/`VKIT_TOKEN`. |
+| `VKIT_ENDPOINT is set but VKIT_TOKEN isn't` | Set both, or unset the one that's set. |
+| `API 401: …` | The token expired or was revoked. Sign in again or issue a new token. |
+| `❌ DENIED` | A policy denied the request; the reason says why. |
+| `Policy bundle has changed since grant issuance` | A new bundle was deployed. Ask again for a new grant. |
 
-#### Authentication Failed
-
-**Problem:**
-```
-Error: Authentication failed (401 Unauthorized)
-```
-
-**Solutions:**
-```bash
-# 1. Check endpoint
-echo $VKIT_API_URL
-
-# 2. Re-authenticate
-vkit logout
-vkit login --endpoint http://localhost:3000 --email you@company.com
-
-# 3. Verify credentials
-vkit whoami
-```
-
-#### Connection Refused
-
-**Problem:**
-```
-Error: Connection refused - connect(2) for "localhost" port 3000
-```
-
-**Solutions:**
-```bash
-# 1. Check if control plane is running
-curl http://localhost:3000/health
-
-# 2. Verify Docker containers
-cd infra
-docker compose ps
-
-# 3. Start services
-docker compose up
-```
-
-#### Grant Expired
-
-**Problem:**
-```
-Error: Grant has expired
-Grant ID: gr_abc123xyz
-Expired at: 2024-01-15 12:00:00 UTC
-```
-
-**Solutions:**
-```bash
-# 1. Request new grant
-vkit request --aql '{"source_table":"customers",...}'
-
-# 2. Request longer TTL (if approval required)
-vkit request --aql '{...}' --ttl 7200
-```
-
-#### Policy Denial
-
-**Problem:**
-```
-❌ Request denied
-Reason: Cross-region PII access forbidden
-Policy: gdpr_protection
-```
-
-**Solutions:**
-1. Review policy restrictions
-2. Request approval if available
-3. Modify query to exclude restricted fields
-4. Contact admin to update policies
-
-### Debug Mode
-
-Enable verbose logging:
-
-```bash
-# Set debug environment variable
-export VKIT_DEBUG=true
-
-# Run command
-vkit request --aql '{...}'
-
-# Output includes:
-# - HTTP request/response details
-# - Policy evaluation trace
-# - Timing information
-```
-
-### Health Check
-
-Verify CLI and control plane connectivity:
-
-```bash
-# Check CLI version
-vkit --version
-
-# Check control plane health
-curl $VKIT_API_URL/health
-
-# Test authentication
-vkit whoami
-```
-
----
-
-## Contributing
-
-We welcome contributions to the VaultKit CLI!
-
-### Development Setup
-
-```bash
-# Clone repository
-git clone https://github.com/yourorg/vaultkit-cli.git
-cd vaultkit-cli
-
-# Install dependencies
-bundle install
-
-# Run tests
-bundle exec rspec
-
-# Run CLI locally
-bundle exec bin/vkit --help
-```
-
-### Running Tests
-
-```bash
-# Unit tests
-bundle exec rspec spec/unit
-
-# Integration tests (requires running control plane)
-bundle exec rspec spec/integration
-
-# All tests
-bundle exec rspec
-```
-
-### Code Style
-
-```bash
-# Run RuboCop
-bundle exec rubocop
-
-# Auto-fix issues
-bundle exec rubocop -a
-```
-
----
-
-## Additional Resources
-
-- **Main Repository**: [github.com/ndbaba1/vaultkitcli.git](https://github.com/ndbaba1/vaultkitcli.git)
-- **Documentation**: [docs.vaultkit.io](https://docs.vaultkit.io)
-- **AQL Specification**: [docs.vaultkit.io/aql](https://docs.vaultkit.io/aql)
-- **Policy Reference**: [docs.vaultkit.io/policies](https://docs.vaultkit.io/policies)
-- **API Documentation**: [docs.vaultkit.io/api](https://docs.vaultkit.io/api)
-
----
-
-## License
-
-VaultKit CLI is licensed under the Apache License 2.0. See [LICENSE](LICENSE) for details.
-
----
-
-**Built with ❤️ by the VaultKit team**
+Set `VKIT_DEBUG=true` to print a Ruby backtrace for unexpected errors. API calls
+time out after 15 seconds. The control plane's health check is `GET /up`.
