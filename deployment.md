@@ -47,7 +47,7 @@ Best for:
 * Fast evaluation
 * Minimal infrastructure
 
-One URL serves everything — nginx inside the Console handles routing. No external reverse proxy required.
+One URL serves everything — nginx inside the Console handles routing. A reverse proxy only needs to handle TLS.
 
 This is the **recommended starting point**.
 
@@ -171,7 +171,7 @@ VKIT_PRIVATE_KEY=/secrets/keys/vkit_priv.pem
 VKIT_PUBLIC_KEY=/secrets/keys/vkit_pub.pem
 ```
 
-> For Option C, point your domain's A record to your server's IP address and configure TLS via Cloudflare or Let's Encrypt before starting VaultKit.
+> For Option C, point your domain's A record to your server's IP address and put a reverse proxy in front of VaultKit for TLS. See [Running behind a reverse proxy](#running-behind-a-reverse-proxy).
 
 ---
 
@@ -222,6 +222,35 @@ Health check:
 ```
 <your-url>/up
 ```
+
+---
+
+## Running behind a reverse proxy
+
+Forward all paths to the console on port 5173. Its nginx handles routing, so don't send
+anything to ports 3000 or 8080, which are internal.
+
+Caddy gets a Let's Encrypt certificate automatically:
+
+```text
+vaultkit.example.com {
+    reverse_proxy localhost:5173
+}
+```
+
+Bind the console to localhost in `docker-compose.yml`:
+
+```yaml
+    ports:
+      - "127.0.0.1:5173:80"
+```
+
+The console trusts the incoming `X-Forwarded-Proto`, so if port 5173 is reachable from
+the internet, anyone can skip the HTTPS redirect. Close 5173 in your firewall or security
+group too. Besides SSH, only ports 80 and 443 need to be open.
+
+If Cloudflare is in front, set its SSL mode to **Full** or **Full (strict)**, not
+Flexible. Flexible sends plain HTTP to your server, which causes a redirect loop.
 
 ---
 
