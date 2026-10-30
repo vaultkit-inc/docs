@@ -121,6 +121,7 @@ RAILS_ENV=production
 
 APP_HOST=http://localhost:5173
 FRONTEND_BASE_URL=http://localhost:5173
+FORCE_SSL=false
 
 DATABASE_URL=postgres://vaultkit:<password>@postgres:5432/vaultkit
 FUNL_URL=http://funl-runtime:8080
@@ -137,12 +138,16 @@ RAILS_ENV=production
 
 APP_HOST=http://54.123.45.67:5173
 FRONTEND_BASE_URL=http://54.123.45.67:5173
+FORCE_SSL=false
 
 DATABASE_URL=postgres://vaultkit:<password>@postgres:5432/vaultkit
 FUNL_URL=http://funl-runtime:8080
 VKIT_PRIVATE_KEY=/secrets/keys/vkit_priv.pem
 VKIT_PUBLIC_KEY=/secrets/keys/vkit_pub.pem
 ```
+
+`FORCE_SSL=false` lets the control plane answer over plain HTTP. Leave it out of any
+real deployment: tokens and query results would cross the network unencrypted.
 
 Replace `54.123.45.67` with your server's public IP. To find it:
 
@@ -252,6 +257,16 @@ FRONTEND_BASE_URL=https://app.acme.com
 * `app.acme.com` → Console container (port 5173)
 * `api.acme.com` → Control Plane container (port 3000)
 
+The control plane isn't published on the host by default. If your proxy doesn't run on
+the Compose network, publish the port in `docker-compose.yml`, on an address only the
+proxy can reach:
+
+```yaml
+  control-plane:
+    ports:
+      - "127.0.0.1:3000:3000"
+```
+
 VaultKit images remain unchanged.
 
 ---
@@ -281,6 +296,15 @@ DATABASE_URL=postgres://vaultkit:<password>@db.acme.internal:5432/vaultkit
 ---
 
 ## Updating VaultKit
+
+Back up the database first. This reads the connection, including the database name,
+from `DATABASE_URL`, so it works whatever your database is called:
+
+```bash
+docker compose exec -T postgres sh -c 'pg_dump "$DATABASE_URL"' > vaultkit-backup.sql
+```
+
+Then update to the new version:
 
 ```bash
 docker compose pull
