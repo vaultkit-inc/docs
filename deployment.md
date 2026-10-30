@@ -121,6 +121,7 @@ RAILS_ENV=production
 
 APP_HOST=http://localhost:5173
 FRONTEND_BASE_URL=http://localhost:5173
+FORCE_SSL=false
 
 DATABASE_URL=postgres://vaultkit:<password>@postgres:5432/vaultkit
 FUNL_URL=http://funl-runtime:8080
@@ -137,12 +138,16 @@ RAILS_ENV=production
 
 APP_HOST=http://54.123.45.67:5173
 FRONTEND_BASE_URL=http://54.123.45.67:5173
+FORCE_SSL=false
 
 DATABASE_URL=postgres://vaultkit:<password>@postgres:5432/vaultkit
 FUNL_URL=http://funl-runtime:8080
 VKIT_PRIVATE_KEY=/secrets/keys/vkit_priv.pem
 VKIT_PUBLIC_KEY=/secrets/keys/vkit_pub.pem
 ```
+
+`FORCE_SSL=false` lets the control plane answer over plain HTTP. Leave it out of any
+real deployment: tokens and query results would cross the network unencrypted.
 
 Replace `54.123.45.67` with your server's public IP. To find it:
 
@@ -252,6 +257,16 @@ FRONTEND_BASE_URL=https://app.acme.com
 * `app.acme.com` → Console container (port 5173)
 * `api.acme.com` → Control Plane container (port 3000)
 
+The control plane isn't published on the host by default. If your proxy doesn't run on
+the Compose network, publish the port in `docker-compose.yml`, on an address only the
+proxy can reach:
+
+```yaml
+  control-plane:
+    ports:
+      - "127.0.0.1:3000:3000"
+```
+
 VaultKit images remain unchanged.
 
 ---
@@ -282,6 +297,15 @@ DATABASE_URL=postgres://vaultkit:<password>@db.acme.internal:5432/vaultkit
 
 ## Updating VaultKit
 
+Back up the database first. This reads the connection, including the database name,
+from `DATABASE_URL`, so it works whatever your database is called:
+
+```bash
+docker compose exec -T postgres sh -c 'pg_dump "$DATABASE_URL"' > vaultkit-backup.sql
+```
+
+Then update to the new version:
+
 ```bash
 docker compose pull
 docker compose up -d
@@ -297,6 +321,89 @@ produce failing queries or unhelpful errors.
 Pin all three images to the same version in `docker-compose.yml`, then pull and
 restart. Upgrading across several releases? Apply the notes for each version in
 between, newest first below.
+
+### Upgrading to 0.9.2-alpha
+
+Back up the database, update all three image tags in `docker-compose.yml` to
+`0.9.2-alpha`, then pull and restart. Upgrading from 0.8.0 or earlier? Read the
+0.9.1-alpha and 0.9.0-alpha notes too. vkit 1.2.1 and the Python SDK 0.3.1 work
+unchanged.
+
+**Skip 0.9.1-alpha.** Its console breaks every deployment behind a TLS proxy, as
+item 1 explains. 0.9.2-alpha includes all of its fixes.
+
+**One database migration** runs when the control plane starts. It adds
+`policy_approvals.denial_reason` and moves existing denial reasons there. Denying used
+to overwrite the policy's reason for asking for approval, so that reason is gone for
+requests denied before this release.
+
+1. **The console works behind a TLS proxy.** The 0.9.1-alpha console replaced
+   `X-Forwarded-Proto` with `http`, so the control plane redirected every request to
+   HTTPS, forever. Check that your proxy sends `X-Forwarded-Proto: https`. If Cloudflare
+   is in front, use an SSL mode that reaches your proxy over HTTPS, or the proxy will
+   report `http`.
+2. **Plain HTTP needs `FORCE_SSL=false`.** The control plane redirects anything that
+   isn't HTTPS, so a trial on `http://<server-ip>:5173` needs that setting in `.env`.
+   Leave it out of production.
+3. **The control plane is no longer published on port 3000 in `deploy/alpha`.** The
+   console proxies to it, so point your reverse proxy at port 5173. Check your own
+   `docker-compose.yml`: if port 3000 is still published, remove it unless a multi-domain
+   proxy outside Docker needs it. **Anything that calls `:3000` directly needs to use the
+   console URL instead.**
+4. **Every login now lasts one hour.** Password sign-in lasted two hours, and OIDC and
+   CLI logins also lasted two despite being meant to last one. Tokens issued before the
+   upgrade keep their original expiry. Agent tokens have their own expiry and aren't
+   affected. **Scripts that use a login token through `VKIT_TOKEN` and run for more than
+   an hour should use an agent token.**
+5. **The console handles expired sessions.** It goes to sign-in with "Your session
+   expired. Sign in again to continue." and returns to the same page. Failed requests
+   show an error with a retry, not an empty page.
+6. **The Approvals page is redesigned.**
+   - It has three tabs: Waiting on you, Your requests and History. Requests show why
+     the policy held them, what the agent would get, and the exact query.
+   - Approve and Deny wait five seconds with Undo before they're sent. If your session
+     expires during those seconds, the decision is lost and the request stays waiting.
+   - **A deny reason is now optional, and it reaches the requester and their agent**
+     through `GET /requests/:id`.
+7. **Members have their own Overview,** with what's waiting on them, their active
+   grants and their recent requests. New members see how to connect an agent. Admins
+   keep the existing Overview.
+8. **API changes.**
+   - `GET /approvals?state=decided` lists past decisions. Use it instead of
+     `state=approved`, which returns an empty list.
+   - Deciding a request that's already decided, or approving one queued under an older
+     policy bundle, now returns `409`. They used to return `403` and `500`.
+   - On a denied approval, `reason` is the policy's reason, and the approver's is in
+     `denial_reason`. **Integrations that read the approver's reason from `reason` need
+     updating.**
+
+### Upgrading to 0.9.1-alpha
+
+Update all three image tags in `docker-compose.yml` to `0.9.1-alpha`, then pull and
+restart. There are no database migrations. Upgrading from 0.8.0 or earlier? Read the
+0.9.0-alpha notes too.
+
+Upgrade the clients as well: vkit 1.2.1 verifies TLS certificates when signing in,
+and the Python SDK 0.3.1 passes policy denial reasons, including the new ones below,
+through to MCP agents. vkit 1.2.0 and SDK 0.3.0 still work.
+
+1. **Filters on masked fields are denied.** Full and partial masking change the
+   values a query returns, but filters compared the unmasked column, so a filter could
+   confirm or recover a masked value.
+   - A request whose `filters` name a field that is fully or partially masked for the
+     requester is denied. This includes nested groups and joined tables.
+   - `having` is denied on any masked field, hash masking included.
+   - Hash-masked fields can still be filtered in `filters`; the comparison is against
+     the hash.
+   - Grants are rechecked when reused, so an existing grant whose query filters a
+     masked field stops working. Request again without that filter.
+   - **Agents and scripts that filtered on masked fields now get a denial.** Drop the
+     filter, or ask for a policy that doesn't mask the field for that requester.
+2. **The console image is a production build served by nginx on port 80.** The
+   0.9.0-alpha image ran the Vite development server on port 5173, which the
+   `5173:80` port mapping never reached. The new image proxies the API and sign-in
+   routes to `control-plane:3000`, so keep the control plane's service name as
+   `control-plane`. The console is still at `http://<host>:5173`.
 
 ### Upgrading to 0.9.0-alpha
 
