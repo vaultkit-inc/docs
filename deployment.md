@@ -103,8 +103,11 @@ This does the following:
 
 * Verifies Docker and Docker Compose are installed and running
 * Copies `.env.example` → `.env`
+* Selects the latest release and saves it as `VAULTKIT_VERSION` in `.env`
 * Generates RSA signing keys (`vkit_priv.pem`, `vkit_pub.pem`)
 * Displays your machine's IP address for reference
+
+To install a specific release, use `./scripts/install.sh --version 0.9.2-alpha`.
 
 ---
 
@@ -238,11 +241,10 @@ vaultkit.example.com {
 }
 ```
 
-Bind the console to localhost in `docker-compose.yml`:
+Bind the console to localhost in `.env`:
 
-```yaml
-    ports:
-      - "127.0.0.1:5173:80"
+```bash
+CONSOLE_BIND=127.0.0.1
 ```
 
 The console trusts the incoming `X-Forwarded-Proto`, so if port 5173 is reachable from
@@ -333,14 +335,29 @@ from `DATABASE_URL`, so it works whatever your database is called:
 docker compose exec -T postgres sh -c 'pg_dump "$DATABASE_URL"' > vaultkit-backup.sql
 ```
 
-Then update to the new version:
+Then move to the new version:
 
 ```bash
+./scripts/install.sh --version <version>
 docker compose pull
 docker compose up -d
 ```
 
 Database migrations run automatically on container startup.
+
+An install stays on its version until you change it, so pulling the deploy repository
+never upgrades you. The version is saved as `VAULTKIT_VERSION` in `.env`, and all three
+images use it. The installer switches the folder to that release, so the compose file
+always matches the images. Keep your own settings in `.env`: it stops if tracked files
+have local changes.
+
+The installer refuses a version that doesn't exist or is known to be broken. It also
+refuses an older version: migrations don't run backwards, so VaultKit can't downgrade in
+place. To go back, restore your backup.
+
+Installs from before `VAULTKIT_VERSION` was in `.env` need to run `./scripts/install.sh`
+once after updating the deploy repository. If you edited `docker-compose.yml`, undo that
+first.
 
 Always run the `control-plane`, `funl-runtime` and `console` images from the same
 release. The control plane and funl depend on each other's behaviour (for example,
