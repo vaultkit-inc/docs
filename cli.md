@@ -145,7 +145,7 @@ A grant is VaultKit's permission to run one exact query, for a limited time.
 | Command | What it does |
 | --- | --- |
 | `vkit fetch --grant REF [--format json\|table]` | Runs the granted query and prints the rows (default: JSON). |
-| `vkit grant:revoke --grant REF [--reason TEXT] [--force]` | Admin only. Revokes a grant before it expires. Asks for confirmation unless `--force`. |
+| `vkit grant:revoke --grant REF --reason TEXT [--force]` | Admin only. Revokes a grant before it expires. Asks for confirmation unless `--force`. |
 
 A grant stops working when it expires, is revoked, or the active policy bundle
 changes. Asking the same question again within the grant's lifetime reuses it. See
@@ -162,7 +162,7 @@ issue and revoke them.
 
 ```bash
 vkit agents tokens create --name NAME [--expires-in 24h] [--tenant ID] \
-  [--clearance low|medium|high] [--region EU|US|CA|APAC]
+  [--clearance low|medium|high] [--region EU|US|CA|APAC] [--label TEXT] [--for EMAIL]
 ```
 
 - `--expires-in` takes hours or days: `1h`, `24h`, `30d`.
@@ -173,6 +173,10 @@ vkit agents tokens create --name NAME [--expires-in 24h] [--tenant ID] \
 - Tenant, clearance and region are fixed when the token is issued; the agent can't
   change them. Every agent token has the role `agent` (the `--role` option is
   ignored by the control plane).
+- `--label` describes this token, such as "PagerDuty runner". Tokens with the same
+  `--name` are one agent on the console's Agents page.
+- `--for` names the person the agent acts for. Its requests then show in that person's
+  Activity. Without it, the token acts for no one and only admins see its requests.
 - The secret is shown once.
 
 For an assistant that serves several customers, issue a short-lived token per
@@ -186,10 +190,13 @@ vkit agents tokens create --name support-assistant --tenant org_42 --expires-in 
 
 ```bash
 vkit agents tokens list [--format table|json]
-vkit agents tokens revoke --token ID_OR_PREFIX [--force]
+vkit agents tokens revoke --token ID_OR_PREFIX --reason TEXT [--force]
 ```
 
-`revoke` asks you to type `revoke` to confirm, unless `--force`.
+`revoke` asks you to type `revoke` to confirm, unless `--force`. The reason is required
+and recorded in the audit log, and the agent sees it in its errors, so don't put secrets
+in it. Revoking a token also revokes its live grants and denies its pending approvals,
+and a query it has running returns no rows.
 
 ---
 

@@ -144,7 +144,7 @@ List or revoke tokens with:
 
 ```bash
 vkit agents tokens list
-vkit agents tokens revoke --token <id-or-prefix>
+vkit agents tokens revoke --token <id-or-prefix> --reason "rotating keys"
 ```
 
 ---

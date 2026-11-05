@@ -115,6 +115,13 @@ See [Tenant-scoped datasets](policy_guide.md#tenant-scoped-datasets).
 **Audit**
 - **What's recorded:** each request is written to the audit log, with the requester,
   their attributes and tenant, the query, the decision, and the grant and fetch events.
+- **Activity page:** the console lists every request with its decision and why, links
+  each request to its approval and runs, and exports CSV. Admins also see the executed
+  SQL and parameters; parameters are cleared after `ACTIVITY_PARAMETER_RETENTION_DAYS`
+  (30 by default). Members see only their own requests and their agents'.
+- **Agents page:** agent tokens grouped by name, with their grants and recent requests.
+  Admins can revoke a token, a grant or all of an agent's access, which takes effect
+  immediately, even for a query already running.
 
 ---
 
@@ -122,8 +129,8 @@ See [Tenant-scoped datasets](policy_guide.md#tenant-scoped-datasets).
 
 - **Datasources:** PostgreSQL only. Hash masking needs the `pgcrypto` extension in the
   target database.
-- **Audit log:** stored in the control plane's PostgreSQL database. There's no audit
-  API or console view yet, and the log isn't tamper-evident.
+- **Audit log:** stored in the control plane's PostgreSQL database. It can't be sent to
+  another destination (such as a SIEM) yet, and it isn't tamper-evident.
 - **Console:** has no screens for policies, datasources or the registry; use `vkit` for
   those.
 - **Tenancy:** schema-per-tenant and database-per-tenant routing aren't supported; only
