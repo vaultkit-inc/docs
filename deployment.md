@@ -368,6 +368,84 @@ Pin all three images to the same version in `docker-compose.yml`, then pull and
 restart. Upgrading across several releases? Apply the notes for each version in
 between, newest first below.
 
+### Upgrading to 0.10.0-alpha
+
+Back up the database, then move to `0.10.0-alpha`: run
+`./scripts/install.sh --version 0.10.0-alpha` in the deploy repository, then pull and
+restart. With your own compose file, update all three image tags instead. **Upgrade vkit
+to 1.3.0 at the same time.** The Python SDK 0.3.1 works unchanged.
+
+**Four database migrations** run when the control plane starts:
+- the Activity tables, `request_activities` and `request_executions`; `request_id` and
+  `correlation_id` columns on `audit_logs`; `agent_tokens.user_id`; and the `pg_trgm`
+  extension, for searching request purposes. On an external database, the control
+  plane's database user must be allowed to create the extension. PostgreSQL 13 and later
+  allow the database owner to; otherwise, run `CREATE EXTENSION pg_trgm;` as an
+  administrator first;
+- parameter retention columns on `request_executions`;
+- `created_by_id`, `last_used_at`, `revoked_by_id` and `revoke_reason` on
+  `agent_tokens`, and `event_id` on `audit_logs`, backfilled from existing data where
+  possible;
+- a `refusal` column on `request_activities`.
+
+1. **Revoking now cuts off access immediately. This is a security fix.** Before, revoking
+   an agent token stopped new requests, but the token's live grants kept working until
+   they expired, its pending approvals stayed open, and a query already running still
+   returned its rows. Now revoking a token also revokes its grants and denies its pending
+   approvals. A query in flight returns no rows, and a revoked or expired token gets `401`
+   with `code: token_revoked` or `token_expired` and the reason.
+2. **Every revoke needs a reason.** That covers tokens, grants and the new revoke all
+   access for an agent. Without one, the control plane returns `422 A reason is required`,
+   so **`vkit grant:revoke` and `vkit agents tokens revoke` from vkit 1.2.2 and earlier
+   fail**. vkit 1.3.0 requires `--reason`. Agents see the reason in their errors, so don't
+   put secrets in it.
+3. **New Activity page.** It's the audit log of every request: who asked, for what,
+   the decision and why, and, for admins, the executed SQL. It has filters, a link for
+   each request, and CSV export.
+   - Members see only their own requests and their agents'.
+   - Executed SQL and query parameters are shown only to admins.
+4. **Query parameters are now stored, and cleared after 30 days.** Parameters are filter
+   values, so they can hold personal data. Set `ACTIVITY_PARAMETER_RETENTION_DAYS` to
+   change how long they're kept, or `0` to never store them. An invalid value stops the
+   control plane at startup. Expired parameters are hidden at once and cleared at start-up
+   and after new queries. On an instance that rarely restarts or sees no queries, run
+   `bin/rails activity:clear_expired_parameters` from cron.
+5. **New Agents page.** It groups agent tokens by name and shows each agent's tokens, live
+   grants and recent requests. Admins can revoke one token, one grant, or all access for
+   an agent. Members see only agents whose tokens they created, read-only.
+6. **Agent tokens record who they act for and who created them.** Use
+   `vkit agents tokens create --for <email>` (vkit 1.3.0) to set the person an agent acts
+   for. Its requests then appear in that person's Activity. Tokens created before this
+   release act for no one, and their creator shows as unknown.
+7. **API changes.**
+   - Every request response, including denials, now includes `request_id`, the id
+     shown in Activity.
+   - Each request is identified by a correlation id: the control plane's request id,
+     which it also sends to funl as `X-Correlation-ID`.
+   - New endpoints: `/activity` and `/agents`.
+8. **The audit log is in the control plane's Postgres.** The docs no longer describe
+   configurable audit sinks, which never existed. Activity's own tables are always in
+   Postgres. Its Raw event view needs the Postgres audit sink, and says so if it's off.
+
+### Upgrading to 0.9.3-alpha
+
+Back up the database, then move to `0.9.3-alpha`: run
+`./scripts/install.sh --version 0.9.3-alpha` in the deploy repository, then pull and
+restart. With your own compose file, update all three image tags instead. There are no
+database migrations, and nothing changes in the control plane, funl or the API. vkit
+1.2.2 and the Python SDK 0.3.1 work unchanged.
+
+This release only changes the console:
+
+1. **The console has the direction B look of vaultkit.io.** That means a paper
+   background, ink text, IBM Plex type, and orange only for actions and links. The
+   sidebar, header, sign-in, registration and activation screens are restyled; the
+   other pages pick up the new colours and type.
+2. **The console no longer loads fonts from Google.** IBM Plex is served by the console
+   itself, so a browser opening it makes no requests to Google Fonts.
+3. **New favicon and app icons,** an ink tile with a paper mark.
+4. **The session-expired notice is ochre,** not red.
+
 ### Upgrading to 0.9.2-alpha
 
 Back up the database, update all three image tags in `docker-compose.yml` to

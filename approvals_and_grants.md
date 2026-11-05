@@ -82,8 +82,9 @@ approval: an approval lifts the approval requirement, not the masks.
 **Checked every time it's used.** A grant stops working when:
 
 - it expires;
-- an admin revokes it with `vkit grant:revoke --grant REF`, or removes the requester
-  from the team, which revokes all their grants;
+- an admin revokes it with `vkit grant:revoke --grant REF --reason TEXT` or from the
+  console's Agents or Activity page, revokes the agent token it was issued to, or removes
+  the requester from the team, which revokes all their grants;
 - the active bundle changes, or the bundle it was issued under is revoked;
 - a condition it was issued under changes. Conditions under a policy's
   `match.context` (such as the requester's role or region) and the tenant are checked
