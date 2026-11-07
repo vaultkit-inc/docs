@@ -262,6 +262,11 @@ projects) or `.cursor/mcp.json` (one project).
 | `vaultkit_query` | `dataset` (required); `fields`; `filters`; `aggregates` (`{func, field, alias}`); `group_by`; `having`; `order_by` (`{column, direction}`); `limit` (1–10,000, default 100); `purpose` | Rows, or an approval to wait for. |
 | `vaultkit_check_approval` | `request_id` | Whether a queued request is `pending`, `approved` or `denied`. |
 
+`group_by` entries can be time buckets, such as
+`{"field": "created_at", "bucket": "quarter"}` (SDK 0.4.0 and later, control plane
+0.11.0-alpha and later), so a trend is one query instead of one per period. See
+[Time buckets](aql_specification.md#time-buckets).
+
 Queries use the [intent format](aql_specification.md#the-intent-format-for-agents):
 one dataset, no joins. Filter operators are `eq`, `neq`, `gt`, `gte`, `lt`, `lte`,
 `like`, `in`, `is_null` and `is_not_null`, with nested `AND`/`OR` groups up to five

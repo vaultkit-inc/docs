@@ -253,7 +253,18 @@ The scan labels each column from its name, type and table:
 - **Category:** `pii`, `financial`, `credential`, `internal` or `unknown`.
 
 It reads names and types only, never data. `unknown` means a column that could hold
-anything (a `payload` jsonb, a `notes` text) that it couldn't place: review it.
+anything (a `payload` jsonb, a `notes` text) that it couldn't place: review it. Until
+you do, the `starter` pack (2.1.0 and later) masks it for agents, and the scan lists it
+under its dataset, marked `!`, with a count:
+
+```
+  customers                ✓
+    ! unreviewed: notes, meta
+
+  ⚠️  2 columns are unreviewed and masked until you review them
+```
+
+To review one, set its sensitivity in `datasets/registry.yaml`, then bundle and deploy.
 
 A rescan keeps labels you've reviewed (from a deployed bundle or a manual edit). Where
 the classifier disagrees, it lists a suggestion instead of changing the label:
@@ -319,6 +330,12 @@ dataset would leak across tenants:
 
 If the problems are in pack policies, `vkit policy pack upgrade` replaces them.
 
+The bundle also checks every installed pack. It fails, exits 1 and writes nothing when
+a pack is missing files, has files from another version, or is missing policies, and
+it names the pack and the files. `vkit policy pack upgrade` restores missing files.
+Every bundle prints how many policies come from each pack and from the repo, so a
+dropped pack shows even when nothing fails.
+
 ### `vkit policy validate`, `deploy` and `revoke`
 
 ```bash
@@ -327,6 +344,7 @@ vkit policy deploy [--bundle dist/policy_bundle.json] [--no-activate]
 vkit policy revoke --bundle_version VERSION [--reason TEXT] [--force]
 ```
 
+- `deploy` and `validate` refuse a bundle that leaves out one of its packs' policies.
 - `deploy` uploads the bundle and makes it active; `--no-activate` only uploads it.
   A bundle version can only be deployed once, so commit a change before redeploying.
 - `revoke` revokes a bundle version: grants issued under it stop working.
@@ -343,7 +361,7 @@ Packs are ready-made, versioned policies. See [Policy Packs](pack_system.md).
 | `vkit policy pack info NAME` | Shows a pack's version, dependencies and policies. |
 | `vkit policy pack add NAME [--force]` | Installs a pack into `config/policies/`. |
 | `vkit policy pack remove NAME [--force]` | Removes a pack's files (only the ones it installed). |
-| `vkit policy pack upgrade NAME [--force]` | Replaces an installed pack with the shipped version. |
+| `vkit policy pack upgrade NAME [--force] [--restore]` | Replaces an installed pack with the shipped version. If its files are missing, offers to restore them; `--restore` does it without asking. |
 
 Every pack command takes `--dir` (default `.`). Commit the changes, then bundle and
 deploy.

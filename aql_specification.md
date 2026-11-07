@@ -52,7 +52,7 @@ Only PostgreSQL datasources are supported today.
 | `joins` | array | no | See [Joins](#joins). |
 | `filters` | array | no | Combined with AND. See [Filters](#filters). |
 | `aggregates` | array | no | See [Aggregates](#aggregates). |
-| `group_by` | array of strings | no | See [Grouping](#grouping). |
+| `group_by` | array of strings or time buckets | no | See [Grouping](#grouping) and [Time buckets](#time-buckets). |
 | `having` | array | no | Conditions on aggregates. |
 | `order_by` | object | no | One `{"column", "direction"}`, not a list. |
 | `limit` | integer | no | Default 100, maximum 10,000. |
@@ -133,6 +133,65 @@ A filter compares one field to a value. Top-level filters are combined with AND.
 With aggregates, the plain `columns` are the grouping columns. `group_by` makes the
 grouping explicit. Grouping or sorting by a field masked `full` or `partial` is
 denied; `hash`-masked fields are allowed.
+
+### Time buckets
+
+A `group_by` entry is a column name, or a **time bucket** of a timestamp or date
+column. A bucket groups rows by the day, week, month, quarter or year they fall in,
+so a trend ("failed payments per quarter") is one grouped query instead of one query
+per period.
+
+```json
+{
+  "source_table": "payments",
+  "aggregates": [{ "func": "count", "field": "*", "alias": "payments" }],
+  "filters": [{ "operator": "eq", "field": "status", "value": "failed" }],
+  "group_by": [{ "field": "created_at", "bucket": "quarter", "alias": "quarter", "timezone": "America/Toronto" }],
+  "order_by": { "column": "quarter", "direction": "ASC" }
+}
+```
+
+Generated SQL (PostgreSQL):
+
+```sql
+SELECT to_char(date_trunc('quarter', payments.created_at AT TIME ZONE 'America/Toronto'), 'YYYY-MM-DD') AS quarter,
+       COUNT(*) AS payments
+FROM payments
+WHERE payments.status = $1
+GROUP BY to_char(date_trunc('quarter', payments.created_at AT TIME ZONE 'America/Toronto'), 'YYYY-MM-DD')
+ORDER BY quarter ASC
+```
+
+Each row has the first day of its period under the alias, as a `YYYY-MM-DD` date in
+the bucket's time zone (for example `2024-04-01` for the second quarter of 2024),
+and the aggregates. Periods with no rows are not returned.
+
+| Key | Required | Description |
+|-----|----------|-------------|
+| `field` | yes | A timestamp or date column of the dataset (or of a joined table, qualified). |
+| `bucket` | yes | `day`, `week`, `month`, `quarter` or `year`. Weeks start on Monday (ISO 8601). |
+| `alias` | no | The result column's name. Defaults to `<field>_<bucket>`, e.g. `created_at_quarter`. `order_by` can use it. |
+| `timezone` | no | An IANA time zone such as `UTC` or `America/Toronto`. Periods start at midnight in that zone. Defaults to `UTC`. |
+
+Rules:
+
+- A bucket needs `aggregates`, and can be mixed with plain columns:
+  `"group_by": ["status", {"field": "created_at", "bucket": "month"}]`.
+- The bucketed column itself can't also be selected in `columns` (it isn't grouped).
+- `timezone` applies only to `timestamp with time zone` columns. Dates and timestamps
+  without a time zone are bucketed as stored; `UTC` is accepted for them and ignored.
+- The alias must be a simple name and differ from the other columns and aggregate
+  aliases.
+- An unknown bucket, a column that isn't a timestamp or date, or an unknown time zone
+  is rejected with `422` and a message that says which.
+- **Masking:** a bucket follows the same rules as grouping by its column. Bucketing a
+  fully or partially masked column is denied (`GROUP BY date_of_birth` in the reason).
+  A hash-masked column can be bucketed; its bucket values are returned hashed.
+- **Grants and approvals:** the bucket, alias and time zone are part of the query's
+  fingerprint, so a grant for quarters doesn't cover months, and a grant for UTC
+  quarters doesn't cover Toronto quarters.
+- Translation is per connector: PostgreSQL uses `date_trunc` and `to_char`. Other
+  engines map the same units to their own functions.
 
 ---
 
