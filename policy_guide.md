@@ -15,7 +15,8 @@ policies see as a tag. `vkit scan` suggests labels; review them before deploying
 
 `unknown` means the scanner couldn't place a column that could hold anything,
 such as `payload` (jsonb) or `notes` (text). Give it a real label once you know
-what it holds. A rescan replaces an `unknown` label, but keeps labels you've set.
+what it holds. Until then, the `starter` pack masks it for agents. A rescan
+replaces an `unknown` label, but keeps labels you've set.
 
 `vkit policy bundle` rejects a policy that can never match, for example one that
 uses a tag no field can have.
@@ -152,8 +153,8 @@ Packs are ready-made policies. `vkit init` installs `starter`; add others with
 
 | Pack | What it does |
 |---|---|
-| `starter` | Denies credentials. Masks personal data and high-sensitivity fields, also after approval. High-sensitivity data in production needs approval from `data_owner`. `unknown` columns are allowed but flagged: the decision records why, so they show up in the audit log. Other grants last 4 hours. |
-| `ai_safety` | Agents need approval from `security` for personal, financial or `unknown` data in production, and for high-sensitivity data in any environment. |
+| `starter` | Denies credentials. Masks personal data and high-sensitivity fields, also after approval. High-sensitivity data in production needs approval from `data_owner`. `unknown` columns are masked (`full`) for agents in every environment until someone reviews them; people can read them, and the decision records why, so they show up in the audit log. Other grants last 4 hours. |
+| `ai_safety` | Agents need approval from `security` for personal, financial or `unknown` data in production, and for high-sensitivity data in any environment. With `starter`, approved `unknown` columns still come back masked. |
 | `financial_compliance` | Financial data in production needs approval from `finance_manager`, and grants with financial fields last 30 minutes. |
 
 Before relying on a pack:
@@ -164,6 +165,16 @@ Before relying on a pack:
   `low` that holds personal data isn't protected.
 - **Agents match `requester_role: agent`,** the default role for agent tokens.
   Tokens created with another role don't.
+
+An installed pack's files (`config/policies/<pack>__NN__<id>.yaml`) are yours
+to edit, but keep them, with their ids. `.vkit/packs.yaml` records each one,
+and `vkit policy bundle` fails if one is missing, has another policy id, or is
+from another version of the pack than the one installed. The bundle records
+each pack's policy ids, and `vkit policy deploy` and the control plane refuse
+a bundle that leaves one out. To get deleted files back, run
+`vkit policy pack upgrade <pack>`: it lists them and offers to restore them
+(`--restore` restores without asking). Every bundle prints how many policies
+each pack and the repo contribute.
 
 ---
 

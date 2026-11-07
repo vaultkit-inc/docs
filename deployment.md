@@ -368,6 +368,78 @@ Pin all three images to the same version in `docker-compose.yml`, then pull and
 restart. Upgrading across several releases? Apply the notes for each version in
 between, newest first below.
 
+### Upgrading to 0.11.0-alpha
+
+Back up the database, then move to `0.11.0-alpha`: run
+`./scripts/install.sh --version 0.11.0-alpha` in the deploy repository, then pull and
+restart. With your own compose file, update all three image tags instead; funl changed
+too, so keep all three on the same version. **Upgrade vkit to 1.4.0 and the Python SDK
+to 0.4.0 as well:** item 1 below ships in vkit, and the MCP tool only tells agents about
+time buckets from SDK 0.4.0.
+
+**One database migration** runs when the control plane starts: an
+`unreviewed_fields` column on `request_activities`, empty for existing rows.
+
+1. **Agents get unreviewed columns masked under the `starter` pack
+   ([vaultkitcli#45](https://github.com/vaultkit-inc/vaultkitcli/issues/45)).** This is a
+   security fix, and it ships in the CLI: `starter` 2.1.0 adds
+   `mask_unknown_for_agents`, which masks every column labelled `unknown` (`full`, so
+   values come back as `*****`) when an agent token (`requester_role: agent`) reads it,
+   in every environment, until someone gives the column a real label. Before, `starter`
+   allowed these columns and only recorded why, and on a real schema they are where
+   personal data hides: vaguely named text and JSONB columns such as `notes`, `meta`,
+   `payload` or `value`. To get it, upgrade vkit, then run
+   `vkit policy pack upgrade starter`, `vkit policy bundle` and `vkit policy deploy`.
+   - Masks combine and the strictest decision wins, so no allow policy, at any priority,
+     unmasks these columns, and a `partial` or `hash` mask on them loses to `full`.
+   - In production, `ai_safety` still asks `security` to approve an agent reading an
+     `unknown` column. Approval doesn't lift masks, so the column stays masked after it.
+   - Because the columns are fully masked, an agent's query can no longer filter, group
+     or sort on them, or aggregate their values (MIN, MAX, SUM, AVG; counting still
+     works). It is denied with the existing "masked fields" reasons. Review the column to
+     allow that.
+   - People (not agents) are unaffected: they still read `unknown` columns in clear,
+     flagged by `flag_unknown_sensitivity`, unless your own policies say otherwise.
+   - An agent token created with a role other than `agent` doesn't match, as with
+     `ai_safety`.
+2. **Activity says when a request touched unreviewed columns.** A request's details list
+   the requested columns still labelled `unknown` when it was decided: "N columns are
+   unreviewed and masked until you review them", or just "unreviewed" when they weren't
+   masked, with how to review them. Requests recorded before this release show nothing.
+3. **Scans list unreviewed columns.** The scan response has an `unreviewed` list per
+   dataset, and `vkit scan <datasource>` (with the next vkit) prints them and how many
+   there are. Older vkit versions ignore the field.
+4. **AQL can group by a time bucket
+   ([#106](https://github.com/vaultkit-inc/vaultkit/issues/106)).** A `group_by` entry can
+   now be `{"field": "created_at", "bucket": "quarter", "alias": "quarter", "timezone":
+   "America/Toronto"}`, with buckets `day`, `week`, `month`, `quarter` and `year`, so a
+   trend is one grouped request instead of one request per period. It works on the
+   intent API and `/requests`, on timestamp and date columns, and follows the masking
+   rules for grouping: denied on fully or partially masked columns, allowed on hashed
+   ones. The bucket, alias and time zone are part of the fingerprint. Both the control
+   plane and funl must be upgraded: an older funl rejects the request with `invalid
+   JSON`. See [Time buckets](aql_specification.md#time-buckets).
+5. **Approving a request no longer fails when its grant ref collides.** A new grant's
+   ref could match one in another organization, and the approval then failed with a
+   `422`. Refs now carry 10 random bytes, are checked for uniqueness across all
+   organizations, and are drawn again on a collision. Existing refs keep working. A ref
+   on its own still authorises nothing.
+6. **The control plane refuses bundles that leave out their packs' policies.** Bundles
+   from vkit 1.4.0 list each pack's policy ids, and deploying one that's missing any of
+   them returns `422`. Bundles without the list, from older vkit versions, are accepted
+   as before. vkit 1.4.0 also refuses to build such a bundle, and names the missing
+   files.
+7. **Agents page:**
+   - Grants a person approved are listed on their own. Grants that only cache a
+     policy decision fold into one line per agent ("N queries allowed by policy"), with a
+     button to revoke them all.
+   - Grants issued under an older policy bundle no longer work, so they're listed as
+     "Inactive under current policy", greyed out, and left out of the live counts. The
+     note says whether rolling back to that bundle would make them work again. They can
+     still be revoked.
+   - In the API, `live_grant_count` now counts only grants that still work, and
+     `inactive_grant_count` is new.
+
 ### Upgrading to 0.10.0-alpha
 
 Back up the database, then move to `0.10.0-alpha`: run
