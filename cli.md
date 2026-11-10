@@ -1,6 +1,6 @@
 # VaultKit CLI (`vkit`)
 
-**Applies to:** vkit 1.2.0 with VaultKit 0.9.0-alpha
+**Applies to:** vkit 1.5.0 with VaultKit 0.12.0-alpha
 
 `vkit` is the command-line client for VaultKit. People use it to request governed
 data and approve requests; admins use it to register datasources, scan schemas, and
@@ -168,6 +168,9 @@ vkit agents tokens create --name NAME [--expires-in 24h] [--tenant ID] \
 - `--expires-in` takes hours or days: `1h`, `24h`, `30d`.
 - `--tenant` confines the token to one tenant's rows on datasets marked with
   `tenant_column`. See [Tenant-scoped datasets](policy_guide.md#tenant-scoped-datasets).
+  A token without one can't read those datasets at all: VaultKit answers as if they
+  didn't exist. So vkit 1.5.0 warns, after issuing the token, when the org has
+  tenant-scoped datasets. It names up to five of them and suggests `--tenant`.
 - `--clearance` and `--region` are what policies see as `requester_clearance` and
   `requester_region`.
 - Tenant, clearance and region are fixed when the token is issued; the agent can't
@@ -324,6 +327,10 @@ dataset would leak across tenants:
 - an invalid environment, region or clearance value, or `time` under top-level
   `context` (it works under `match.context`);
 - a mask policy with no fields to mask;
+- a `match.fields.usage` other than `row` or `aggregate`;
+- an approval policy with neither `approver_role` nor `approver_roles`, or with both,
+  an empty or repeated group, an `approval_mode` other than `all` or `any`, or an
+  `approval_mode` with a single `approver_role` (vkit 1.5.0);
 - a `tenant_column` that isn't one of its dataset's fields, or a dataset that has
   another dataset's tenant column but isn't marked (`tenant_column: false` declares a
   table every tenant may read).

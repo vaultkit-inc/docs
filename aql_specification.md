@@ -59,8 +59,18 @@ Only PostgreSQL datasources are supported today.
 | `offset` | integer | no | Default 0. |
 
 Table and column names must be plain identifiers (letters, digits, underscores,
-optionally `table.column`). Quoted or schema-qualified names are rejected. Every value
+optionally `table.column`). Quoted or schema-qualified names are rejected. Write them
+exactly as the registry has them, case included: `firstName`, `riskScore`. Every value
 in filters and `having`, and the limit and offset, is sent as a bound parameter.
+
+Every dataset and field a query names must be in the deployed registry (0.12.0-alpha):
+in columns, filters, aggregates, grouping, sorting, `having` and joins.
+
+- **An unknown field** is refused with `422`, listing the fields you can use:
+  "Unknown field `brand` on `payment_methods`. Valid fields: id, card_brand, …".
+- **A dataset that isn't in the registry, or that is hidden from you,** gets the same
+  `404 {"error": "Dataset not found", "request_id": "…"}` on both APIs. So does a
+  tenant-scoped dataset for an agent with no tenant.
 
 ---
 
@@ -244,7 +254,8 @@ Aggregates over masked fields are masked too, except `COUNT`. See the
 For a dataset marked with `tenant_column`, the control plane adds
 `<table>.<tenant_column> = <your tenant>` to every query that reads it, ANDed with
 your filters, for the source table and every joined table. A requester without a
-tenant is denied. See [Tenant-scoped datasets](policy_guide.md#tenant-scoped-datasets).
+tenant can't read it: an agent gets "Dataset not found" (0.12.0-alpha), a person a
+`403` that says why. See [Tenant-scoped datasets](policy_guide.md#tenant-scoped-datasets).
 
 ---
 
@@ -253,15 +264,35 @@ tenant is denied. See [Tenant-scoped datasets](policy_guide.md#tenant-scoped-dat
 The query at the top of this page, minus the filter, becomes:
 
 ```sql
-SELECT "public"."orders".status AS status, COUNT(id) AS orders
+SELECT "public"."orders"."status" AS "status", COUNT("id") AS "orders"
 FROM "public"."orders"
-GROUP BY status
-ORDER BY status ASC
+GROUP BY "status"
+ORDER BY "status" ASC
 LIMIT $1
 ```
 
-Tables are qualified with their schema, and each column gets an alias. When two
-selected columns share a name, they come back as `<table>_<column>`.
+Tables are qualified with their schema, and each column gets an alias. Every name is
+quoted (0.12.0-alpha), so mixed-case columns keep their case and reserved words such
+as `order` or `user` work. Results are keyed by the names you asked for, case
+included. When two selected columns share a name, they come back as
+`<table>_<column>`.
+
+### When a query fails to run
+
+The database's errors are reported clearly (0.12.0-alpha), with a `code` and the
+`correlation_id`, and never with SQL, parameter values or connection details:
+
+| Problem | Response |
+|---|---|
+| A column or table the database doesn't have (`undefined_column`, `undefined_table`) | `422`: "Column `x` doesn't exist on `dataset`", asking for a rescan |
+| A value of the wrong type, or an incompatible comparison (`type_mismatch`) | `422`, for example "A filter value isn't a valid bigint." |
+| The datasource's login can't read the data (`permission_denied`) | `403` |
+| The datasource is busy (`datasource_busy`) | `503` with `Retry-After` |
+| The query ran past the timeout (`query_timeout`) | `504` |
+| Anything else | `502` "Query engine error" |
+
+The failed run is recorded on the request. Admins see its SQL, with placeholders and
+no parameters, on the Activity page.
 
 ---
 
@@ -293,7 +324,9 @@ Differences from full AQL:
 - **Fields:**
   - `fields` can't contain `*`, and a request needs fields or aggregates;
   - fields are bare names or qualified with the request's own dataset;
-  - fields used only in aggregates or grouping must still be visible to the agent.
+  - fields used only in aggregates or grouping must still be visible to the agent;
+  - every field must be in the registry. Call `vaultkit_describe` (or
+    `GET /aql/datasets/:name/schema`) to list them.
 - **Aggregates and having:**
   - aggregate aliases must be unique, simple names;
   - with an explicit `group_by`, every selected field must be in it;

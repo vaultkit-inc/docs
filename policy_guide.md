@@ -37,6 +37,9 @@ match:                             # OPTIONAL: which data this policy applies to
     contains: [<tag>, <tag>]       # a requested field has ANY of these tags
     any: [field1, field2]          # ANY of these fields is requested
     all: [field1, field2]          # required as well: ALL of these are requested
+    usage: row | aggregate         # OPTIONAL: only fields read value by value (row,
+                                   # MIN/MAX included) or only counted, summed,
+                                   # averaged or grouped by (aggregate). 0.12.0-alpha
 
   context:                         # OPTIONAL: like `context` below, plus time
     time:
@@ -57,7 +60,9 @@ action:                            # REQUIRED: exactly one of these is true
   mask: true
   allow: true
 
-  approver_role: <group>           # REQUIRED with require_approval
+  approver_role: <group>           # REQUIRED with require_approval: one group, or
+  approver_roles: [<group>, ...]   # several groups (0.12.0-alpha, vkit 1.5.0), with
+  approval_mode: all | any         # all (default): each signs off; any: one does
   reason: <string>                 # REQUIRED with deny and require_approval
   ttl: "1h"                        # OPTIONAL: how long the grant lasts
 
@@ -135,9 +140,16 @@ When several policies match, the strongest action wins, whatever their priority:
 | 1       | mask               |
 | 0       | allow              |
 
-When several approval policies match, every one of their approver groups must
-sign off, and the shortest TTL applies. Masking from every matching mask policy
-is combined. With no matching policy, a request is allowed.
+When several approval policies match, every policy's requirement must be met (all
+of its groups, or any one with `approval_mode: any`), each sign-off from a different
+person, who counts for one group only. The shortest TTL applies. See
+[Approvals](approvals_and_grants.md#approvals). Masking from every matching mask
+policy is combined. With no matching policy, a request is allowed.
+
+A field must be in the registry for a request to name it. A field the registry
+doesn't have is refused before any policy is evaluated, so it can't slip past
+policies that match on labels. See
+[Columns the registry doesn't have](schema_discovery.md#columns-the-registry-doesnt-have).
 
 Masking combines every mask policy that matches, with the requester's context;
 when two mask one field, the strictest method wins (full, then hash, then
@@ -154,8 +166,14 @@ Packs are ready-made policies. `vkit init` installs `starter`; add others with
 | Pack | What it does |
 |---|---|
 | `starter` | Denies credentials. Masks personal data and high-sensitivity fields, also after approval. High-sensitivity data in production needs approval from `data_owner`. `unknown` columns are masked (`full`) for agents in every environment until someone reviews them; people can read them, and the decision records why, so they show up in the audit log. Other grants last 4 hours. |
-| `ai_safety` | Agents need approval from `security` for personal, financial or `unknown` data in production, and for high-sensitivity data in any environment. With `starter`, approved `unknown` columns still come back masked. |
-| `financial_compliance` | Financial data in production needs approval from `finance_manager`, and grants with financial fields last 30 minutes. |
+| `ai_safety` | Agents need approval from `security` for personal or `unknown` data in production, and for high-sensitivity data in any environment. Agents reading financial data row by row in production need `security` **or** `finance_manager` (2.1.0). With `starter`, approved `unknown` columns still come back masked. |
+| `financial_compliance` | Reading financial data row by row in production needs approval from `finance_manager`. Counts, sums, averages and grouping of financial columns don't; MIN and MAX do (2.1.0). Grants with financial fields last 30 minutes. |
+
+With both packs (2.1.0), an agent reading financial rows needs one sign-off, from a
+finance manager. A request that needs two groups still does so for a reason: personal
+and financial data together (`security` and `finance_manager`), an unreviewed column
+plus financial data (the same two), or a high-sensitivity column (`data_owner` from
+`starter` and `security` from `ai_safety`).
 
 Before relying on a pack:
 

@@ -368,6 +368,195 @@ Pin all three images to the same version in `docker-compose.yml`, then pull and
 restart. Upgrading across several releases? Apply the notes for each version in
 between, newest first below.
 
+### Upgrading to 0.12.0-alpha
+
+Back up the database, then move to `0.12.0-alpha`: run
+`./scripts/install.sh --version 0.12.0-alpha` in the deploy repository, then pull and
+restart. With your own compose file, update all three image tags instead; funl changed
+too (items 8 and 9), so keep all three on the same version. **Upgrade vkit to 1.5.0 and
+the Python SDK to 0.5.0 as well:**
+- vkit 1.5.0 has the new approval keys, packs 2.1.0 (items 5 and 7) and the tenant
+  warning (item 4).
+- SDK 0.5.0 has `vaultkit_describe` (item 3), clear errors and approval progress for
+  agents (items 6 and 9).
+
+Upgrade the control plane before deploying a bundle that uses vkit 1.5.0's new keys.
+
+**Two database migrations** run when the control plane starts:
+- `approval_requirements` on `policy_approvals`. It's empty for existing approvals,
+  which keep needing every listed role.
+- The last-run columns on `request_activities`, `request_executions` and `grants`,
+  backfilled from existing runs.
+
+1. **Requests that name a field the registry doesn't have are refused.** This is a
+   security fix. Policies match on registry labels, so a field missing from the deployed
+   bundle's registry matched no policy and was allowed, unmasked and without approval.
+   That covered a column added to the database after the last scan, and Postgres system
+   columns such as `xmin` and `ctid`. Now every dataset and field a query touches (in
+   columns, aggregates, filters, grouping, sorting and joins) is checked against the
+   registry before policies are evaluated, on the intent API and on `/requests`.
+   - An unknown field is refused with `422` and names the fields the requester can use:
+     "Unknown field `brand` on `payment_methods`. Valid fields: id, card_brand, …".
+     Fields denied to the requester aren't listed.
+   - An unknown field on a dataset hidden from the requester is answered with `404`
+     "Dataset not found", like the dataset itself, so the answer never confirms the
+     dataset exists. A join to a dataset that isn't in the registry gets the same `404`;
+     it used to be a `422`.
+   - The request is refused before anything is decided, so it never queues an approval
+     or issues a grant. Before, a misspelled field on a dataset that needs approval went
+     to the approvers, and failed with "Query engine error" only after they approved it.
+   - It's still recorded. Activity shows it with a new outcome, **Rejected**, with its
+     own tile and filter (`decision=rejected` on `GET /activity`, and a `rejected`
+     count). The row has the reason, the agent and token or the person, the dataset and
+     the requested field names. The audit log gets a `request.rejected` event, and the
+     response carries the `request_id` it was recorded under. A request for a dataset
+     the registry doesn't have is recorded the same way. On `/requests` it still
+     answers `422` "Unknown dataset"; see item 4 for both APIs.
+   - To read a column added since your last scan, run `vkit scan`, review its labels,
+     and redeploy the bundle.
+   - Grants issued before the upgrade still run the query they were approved for until
+     they expire or are revoked.
+2. **`GET /aql/datasets/:name/schema` returns `404` for a dataset denied to the
+   requester**, matching the intent API. Before, it returned `200` with the dataset's
+   name and no fields.
+3. **Dataset discovery says what a request would get.** `GET /aql/datasets` and
+   `GET /aql/datasets/:name/schema` now evaluate policies as a real request would, and
+   their hints are no longer empty. Upgrade the Python SDK to 0.5.0 for the
+   `vaultkit_describe` MCP tool, which uses them.
+   - Each field's `visibility` is the decision a request for it would get (`allow`,
+     `mask` or `require_approval`). It used to be `null`, and `masked` was always
+     `false`. New on each field: `approver_roles`, `mask` (the masking method, which
+     applies even after approval) and `tenant_column`.
+   - A dataset's `visibility` is the strongest of its fields' decisions. It used to be
+     `allow` for almost every dataset, because no field-based policy was matched.
+   - Policies are evaluated in the environment and region of the dataset's datasource.
+     The `environment` and `dataset_region` query parameters are ignored, as on the
+     intent API.
+   - Tenancy applies. A tenant-scoped dataset is left out of the list, and its schema
+     returns `404`, for a requester with no tenant: they can't query it. Datasets have
+     a new `tenant_scoped` flag.
+   - The datasets and fields come from the deployed bundle's registry, which is what
+     requests are checked against. They used to come from the stored registry entries,
+     which a newer scan could change before it was bundled and deployed.
+4. **The intent API answers an unknown dataset and a hidden one identically.** This is a
+   security fix. Before, an agent could tell a dataset that doesn't exist (`422`
+   "Unknown dataset: x") from one that exists but is hidden from it by policy (`404`).
+   It could also tell them apart through validation errors, which a hidden dataset got
+   and an unknown one didn't. Now both get the same response, with the same status and
+   body: `404 {"error": "Dataset not found", "request_id": "…"}`. The dataset is
+   checked before anything else in the request.
+   - Activity and the audit log keep the difference. An unknown dataset is **Rejected**.
+     A hidden one is **Denied** ("Refused: dataset hidden from this requester"), with a
+     `request.denied` audit event naming the policy that hides it.
+   - The policy and reason behind a hidden dataset are shown to admins only. Members
+     see the request but not why, in the details, in its raw events and in the CSV
+     export. The requester was told the dataset doesn't exist.
+   - Before, a hidden dataset on the intent API wasn't recorded at all.
+   - **Agents with no tenant:** a tenant-scoped dataset is treated as hidden from them.
+     They can't read it at all, so they get the same `404`. Before, they got `403`
+     `tenant_required` with an explanation. Activity records it as Denied ("Refused:
+     tenant-scoped dataset, agent has no tenant"), with the explanation for admins
+     only. vkit 1.5.0 warns when you create a token with no tenant in an
+     org that has tenant-scoped datasets. People keep the `403` explanation: they
+     have no tenant either, and the console shows them why.
+   - **People's `/requests`:** a dataset that doesn't exist, and one denied to the
+     person by policy (a deny for the whole dataset, joined datasets included), now
+     get the same `404 {"error": "Dataset not found", "request_id": "…"}`. Before, they
+     got `422` "Unknown dataset: x" and a `403` policy denial with its reason.
+     Activity keeps the real reason for admins: Rejected for an unknown dataset,
+     Denied for a denied one. A deny on particular fields is still a `403` with its
+     reason.
+5. **Approval rules: every policy, one group per person, and any-of groups.**
+   - When several policies require approval, every one's requirement must be met,
+     and a person counts for one group only. This was already enforced; it's now
+     recorded per policy (a migration adds `approval_requirements` to
+     `policy_approvals`). Approvals queued before it need every listed role, as before.
+   - A policy can name several groups: `approver_roles: [security, data_owner]` with
+     `approval_mode: all` (the default, each group signs off) or `any` (one does).
+     vkit's bundle check validates both. A single `approver_role` compiles as before.
+   - A policy can match how a query reads a field: `match.fields.usage: row` (value
+     by value, MIN/MAX included) or `aggregate` (only COUNT, SUM, AVG or grouping).
+   - **Upgrade the control plane before deploying bundles that use these.** An older
+     control plane rejects them (unknown keys in the bundle).
+6. **Approval progress is shown everywhere,** in the same words: "Needs 2 approvals:
+   finance_manager ✓ Ada, security waiting".
+   - The approvals API has `progress` (`summary`, `needed`, `items`) and
+     `requirements`.
+   - `GET /requests/:id` and a pending intent response have `approval_progress`.
+   - The console's Approvals page shows it in the list and on each request.
+   - Discovery fields have `approval` ("Needs 1 approval: finance_manager"), and
+     `aggregate_visibility` / `aggregate_approval` when aggregating a field is decided
+     differently from reading it. Python SDK `vaultkit_describe` and
+     `vaultkit_check_approval` pass these on.
+7. **Packs: totals of financial data no longer need approval, and agents' financial
+   reads need one sign-off, not two.** These ship in vkit 1.5.0
+   (`financial_compliance` and `ai_safety` 2.1.0). Run `vkit policy pack upgrade`,
+   `vkit policy bundle` and `vkit policy deploy`.
+   - `fin_require_approval_financial_prod` now applies to financial data read row by
+     row (`usage: row`). Counts, sums, averages and grouping of financial columns are
+     allowed in production. MIN and MAX still need approval, because they return a
+     single raw value.
+   - `ai_require_approval_agents_sensitive_prod` now covers personal data only. A new
+     `ai_require_approval_agents_financial_prod` asks `security` or a
+     `finance_manager` (`approval_mode: any`) for agents reading financial rows. With
+     `financial_compliance`'s finance requirement, one finance sign-off meets both.
+     Before, an agent's financial read needed finance *and* security.
+8. **Mixed-case columns work.** funl now quotes every identifier it writes (schema,
+   table, column, alias), so a column such as `customers."firstName"` or
+   `payments."riskScore"` keeps its case and a reserved word (`order`, `user`) is
+   read as a name. Before, Postgres folded unquoted names to lower case and these
+   queries failed with "Query engine error". Result rows are keyed by the exact
+   field and alias names asked for (`firstName`, not `firstname`).
+9. **Query errors say what went wrong.** funl maps Postgres errors to clear ones, and
+   the control plane passes them on instead of turning every failure into
+   `502 "Query engine error"`:
+
+   | Postgres error | Response |
+   |---|---|
+   | Unknown column or table | `422`, "Column `x` doesn't exist on `dataset`", advising a rescan |
+   | A value of the wrong type, or an incompatible comparison | `422`, which value or what kind of use |
+   | The datasource's login may not read the data | `403`, a safe message |
+   | Busy (no free connections) | `503` with `Retry-After`, as for funl's own limits |
+   | Timeout, or a statement timeout | `504` |
+   | Anything else | `502 "Query engine error"`, details audited only |
+
+   - Every error body has `error`, a `code` (`undefined_column`, `type_mismatch`,
+     `permission_denied`, …) and the `correlation_id`. funl's own errors are JSON
+     too.
+   - Messages never include SQL, parameter values or connection details.
+   - A failed execution now stores the generated SQL, with `$n` placeholders and
+     never the parameters. Activity shows it to admins.
+   - An agent's request that reuses a grant now reports a funl failure the same way.
+     Before, it returned funl's raw error text.
+   - The Python SDK doesn't retry these: `422` and `403` are deterministic. It retries
+     `503` (honouring `Retry-After`), `504` and `502`.
+   - Upgrade funl and the control plane together. An older control plane shows a
+     newer funl's JSON body as the message of a `422`.
+10. **Activity says when a query failed to run.** Before, a request whose query failed
+   kept its decision ("Approved", "Allowed") and looked as if it hadn't been fetched
+   yet.
+   - The list shows the latest run's outcome with the decision: "Approved · failed:
+     column doesn't exist".
+   - The **Failed** tile and `decision=error` now include requests whose latest run
+     failed, as well as those that failed before a decision. The `error` count can
+     overlap another tile; `all` still counts each request once.
+   - A request's details say the query failed and why, instead of "Approved. Not run
+     yet." Admins see the failed run's SQL (placeholders only) under **Failed SQL**.
+   - The API: each request has `last_run` (`status`, `code`, `reason`, `schema_error`)
+     and `failed_runs_count`, and `executions_count` still counts successful runs. Each
+     run has `error_code` and `error_reason`.
+   - **Grants whose runs fail on the schema** (a column or table the datasource no
+     longer has) are marked "Fails: column doesn't exist" on the Agents page and in
+     the approvals history. Grants carry `last_run`, and approvals carry
+     `grant_last_run`. They aren't revoked automatically; revoke them from the Agents
+     page.
+   - A migration adds the columns and backfills them from existing runs. Older errors
+     are classified from their text.
+11. **Revoking a grant no longer blocks its query.** Before, asking the same query
+   again after its grant was revoked returned `"Grant revoked"` until the grant would
+   have expired. Now the query is evaluated afresh: policy issues a new grant, or it
+   goes to approval again. The revoked grant itself still can't be fetched.
+
 ### Upgrading to 0.11.0-alpha
 
 Back up the database, then move to `0.11.0-alpha`: run
