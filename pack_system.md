@@ -321,13 +321,20 @@ The Pack System follows:
 
 ---
 
-## 15. Shipped Packs (2.0.0)
+## 15. Shipped Packs (vkit 1.5.0)
 
-| Pack | Depends on | What it does |
-| --- | --- | --- |
-| `starter` | — | Denies credentials. Masks personal data and high-sensitivity fields, also after approval. High-sensitivity data in production needs approval from `data_owner`. Columns rated `unknown` are allowed but flagged in the audit log. Other grants last 4 hours. |
-| `ai_safety` | `starter` | Agents need approval from `security` for personal, financial or `unknown` data in production, and for high-sensitivity data in any environment. |
-| `financial_compliance` | `starter` | Financial data in production needs approval from `finance_manager`, and grants with financial fields last 30 minutes. |
+| Pack | Version | Depends on | What it does |
+| --- | --- | --- | --- |
+| `starter` | 2.1.0 | — | Denies credentials. Masks personal data and high-sensitivity fields, also after approval. High-sensitivity data in production needs approval from `data_owner`. Columns rated `unknown` are masked for agents until reviewed; people read them, flagged in the audit log. Other grants last 4 hours. |
+| `ai_safety` | 2.1.0 | `starter` | Agents need approval from `security` for personal or `unknown` data in production, and for high-sensitivity data in any environment. Agents reading financial data row by row in production need `security` **or** `finance_manager` (`approval_mode: any`). |
+| `financial_compliance` | 2.1.0 | `starter` | Reading financial data row by row in production (`usage: row`, MIN and MAX included) needs approval from `finance_manager`. Counts, sums, averages and grouping don't. Grants with financial fields last 30 minutes. |
+
+With both `ai_safety` and `financial_compliance`, one finance sign-off approves an
+agent's financial read: the finance requirement also meets `ai_safety`'s any-of
+requirement. Before 2.1.0 it needed finance **and** security. Bundles from these packs
+use `approver_roles`, `approval_mode` and `match.fields.usage`, so they need VaultKit
+0.12.0-alpha. Upgrade the control plane first, then run
+`vkit policy pack upgrade`, `vkit policy bundle` and `vkit policy deploy`.
 
 ```
 starter (layer 10)

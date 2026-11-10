@@ -4,7 +4,8 @@ How to install, run, connect, and test the VaultKit MCP server (Python SDK 0.3.0
 or later).
 
 The MCP server exposes VaultKit's governed tools (`vaultkit_discover`,
-`vaultkit_query`, `vaultkit_check_approval`) over the Model Context Protocol, so
+`vaultkit_describe`, `vaultkit_query`, `vaultkit_check_approval`) over the Model
+Context Protocol, so
 any MCP host — Claude Desktop, Cursor, the MCP Inspector, custom agents — can
 query governed data. It is a **client** of the control plane; it enforces
 nothing itself.
@@ -160,9 +161,12 @@ npx @modelcontextprotocol/inspector --cli vaultkit-mcp \
   --method tools/list
 ```
 
-Expect three tools. `vaultkit_query` lists the datasets the token can see, and a
-"VALID FIELDS BY DATASET" block for up to five of them. If it's empty, the control
-plane was unreachable when the tool list was built: reconnect once it's up.
+Expect four tools (three before SDK 0.5.0, which added `vaultkit_describe`).
+`vaultkit_query` lists the datasets the token can see. If that list is empty, the
+control plane was unreachable when the tool list was built: reconnect once it's up.
+From SDK 0.5.0, field lists aren't in the tool descriptions: agents call
+`vaultkit_describe` for the datasets they use. Before 0.5.0, a "VALID FIELDS BY
+DATASET" block listed fields for up to five datasets.
 
 Call a tool for real:
 
@@ -258,9 +262,16 @@ projects) or `.cursor/mcp.json` (one project).
 
 | Tool | Inputs | Returns |
 | --- | --- | --- |
-| `vaultkit_discover` | `environment` (optional) | The datasets this token can see, each with its visibility (`accessible`, `requires approval`, …). Datasets the token can't access are left out. |
-| `vaultkit_query` | `dataset` (required); `fields`; `filters`; `aggregates` (`{func, field, alias}`); `group_by`; `having`; `order_by` (`{column, direction}`); `limit` (1–10,000, default 100); `purpose` | Rows, or an approval to wait for. |
-| `vaultkit_check_approval` | `request_id` | Whether a queued request is `pending`, `approved` or `denied`. |
+| `vaultkit_discover` | `environment` (optional) | The datasets this token can see, each with its access level (`accessible`, `accessible, some fields masked`, `requires approval`). Datasets the token can't access are left out. |
+| `vaultkit_describe` | `dataset` (required) | The dataset's fields and types, and what a query for each would get: `allow`, `mask` or `require_approval`, with the approval needed in words ("Needs 1 approval: finance_manager"). `aggregate_access` shows when only counting, summing, averaging or grouping by a field is decided differently, and `masked` gives the masking method. Fields the token can't see are left out. SDK 0.5.0 and later. |
+| `vaultkit_query` | `dataset` (required); `fields`; `filters`; `aggregates` (`{func, field, alias}`); `group_by`; `having`; `order_by` (`{column, direction}`); `limit` (1–10,000, default 100); `purpose` | Rows, or an approval to wait for, with what it needs ("Needs 2 approvals: finance_manager waiting, security waiting"). |
+| `vaultkit_check_approval` | `request_id` | Whether a queued request is `pending`, `approved` or `denied`. While pending, `approval` says who has signed off and who is still needed ("Needs 2 approvals: finance_manager ✓ Ada, security waiting"). Once approved, the rows. |
+
+Every data tool tells the agent: "Call vaultkit_describe before querying a dataset you
+haven't described. Never guess field names." A field the dataset doesn't have is
+refused before anything is decided, and the error lists the fields the token can use
+(control plane 0.12.0-alpha). The approval wording is meant to be passed on to the
+user as it is: when a request needs several groups, every one of them must sign off.
 
 `group_by` entries can be time buckets, such as
 `{"field": "created_at", "bucket": "quarter"}` (SDK 0.4.0 and later, control plane
@@ -284,8 +295,8 @@ what a policy decides, and rewording it doesn't trigger a new approval.
 | `VAULTKIT_TOKEN` | — | Agent token (required). |
 | `VAULTKIT_ORG` | — | Organization slug (required). |
 | `VAULTKIT_ENVIRONMENT` | `production` | Environment the tool list is built for. |
-| `VAULTKIT_MCP_INCLUDE_DISCOVER`, `…_QUERY`, `…_CHECK_APPROVAL` | `true` | Turn individual tools off. |
-| `VAULTKIT_MCP_SCHEMA_HINTS` | `true` | Include the field list in the query tool's description. |
+| `VAULTKIT_MCP_INCLUDE_DISCOVER`, `…_DESCRIBE`, `…_QUERY`, `…_CHECK_APPROVAL` | `true` | Turn individual tools off. |
+| `VAULTKIT_MCP_SCHEMA_HINTS` | `false` (`true` before SDK 0.5.0) | Also list every dataset's fields in the query tool's description, fetched when the tool list is built. Usually unnecessary: agents call `vaultkit_describe`. |
 | `VAULTKIT_MCP_DEFAULT_PURPOSE` | — | Purpose used when the agent gives none. |
 
 ## What the token decides
@@ -296,8 +307,11 @@ Everything an agent can see comes from its token, set by an admin with
 - **Clearance and region** are the token's. Region or clearance values sent by the
   agent are ignored.
 - **Tenant.** On datasets marked tenant-scoped, a token issued with `--tenant` only
-  ever reads that tenant's rows, and a token without one is denied. Run one MCP server
-  per tenant session, each with its own short-lived token. See
+  ever reads that tenant's rows. A token without one can't read them at all. From
+  0.12.0-alpha, it's told "Dataset not found", as for a dataset that doesn't exist,
+  and `vaultkit_discover` leaves them out. vkit 1.5.0 warns when such a token is
+  created. Run one MCP server per tenant session, each with its own short-lived
+  token. See
   [Tenant-scoped datasets](policy_guide.md#tenant-scoped-datasets).
 - **Expiry and revocation.** An expired or revoked token gets `auth_error`; issue a
   new one.
@@ -311,15 +325,21 @@ Every tool returns a structured `status`; it never throws.
 | status | Meaning |
 | --- | --- |
 | `ok` | Rows returned. Masked fields come back masked. |
-| `pending_approval` | A person must approve. Wait, using `vaultkit_check_approval` with the `request_id`, then run the same query again. |
+| `pending_approval` | A person must approve; `approval` says who. Wait, using `vaultkit_check_approval` with the `request_id`. |
 | `queued` | Like `pending_approval`, reported by the SDK's queue handling. |
 | `pending`, `approved`, `denied` | From `vaultkit_check_approval`. |
-| `validation_error`, `client_error` | The query is invalid, or names an unknown dataset. Fix it before retrying. |
-| `not_found` | The dataset or field doesn't exist, or the token isn't allowed to see it. |
-| `forbidden` | A policy denied the request. In SDK 0.3.0 the reason isn't passed through; it's in the control plane's audit log. Don't retry. |
+| `validation_error` | The query was refused as written, with the server's message as it is. For example: "Unknown field `brand` on `payment_methods`. Valid fields: …", "Column `x` doesn't exist on `dataset`" (the datasource changed since it was scanned), or "A filter value isn't a valid bigint." Fix the query; it isn't retried. |
+| `not_found` | "Dataset not found": the dataset doesn't exist, or the token can't see it. Both get the same answer. |
+| `denied` | A policy denied the request; `reason` and `policy_id` say why. Don't retry. |
+| `forbidden` | The datasource's database login can't read the data. An admin grants it. |
 | `auth_error` | The token is missing, expired or revoked. |
-| `rate_limited`, `server_error`, `transport_error` | Retry later; check the control plane is up. |
+| `busy` | VaultKit stayed busy after the SDK waited as long as `Retry-After` asked. Try again later (`retry_after_s`). SDK 0.5.0 and later. |
+| `server_error`, `transport_error` | Retry later; check the control plane is up. |
 | `bundle_revoked` | The active policy bundle was revoked. An admin deploys a new one. |
+
+From SDK 0.5.0, errors carry the server's message as it is, with a `request_id` when the
+request was recorded. They're no longer wrapped as "Unexpected error: ClientError: …".
+4xx errors are never retried.
 
 A denial is a governed outcome, not a failure.
 
@@ -334,7 +354,8 @@ A denial is a governed outcome, not a failure.
 | `transport_error` / "Connection refused" | control plane down | start it on the port in `VAULTKIT_BASE_URL` |
 | `spawn ENOENT` / command not found | wrong PATH / wrong env | absolute path to the binary, or `python -m vaultkit.mcp` |
 | `pip install -e` fails, "setup.py not found" | old system pip (21.x); `-e` is dev-only | activate the venv and use its modern pip; end users use `pip install "vaultkit[mcp]"` (no `-e`) |
-| Tools list but fields empty / dataset free-text | control plane unreachable at build time | ensure CP is up, reconnect/relist |
+| Tools list but dataset free-text | control plane unreachable at build time | ensure CP is up, reconnect/relist |
+| The agent guesses field names | an SDK before 0.5.0 (no `vaultkit_describe`; field hints for only five datasets) | upgrade to SDK 0.5.0 |
 | A dataset or fields silently missing | the tool list was built while the control plane was unreachable, or the token can't see them | reconnect; check the token's access |
 
 The `-e`-in-CLI and writable-catalog-in-UI patterns exist specifically because

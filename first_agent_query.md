@@ -152,7 +152,7 @@ vkit agents tokens revoke --token <id-or-prefix> --reason "rotating keys"
 ## 7. Run your first query — Python SDK
 
 ```bash
-pip install "vaultkit>=0.3.0"
+pip install "vaultkit>=0.5.0"
 ```
 
 **Direct query (no LLM):**
@@ -180,6 +180,11 @@ print(result.rows)
 variables. A request needs `fields`, `aggregates`, or both. Aggregates (`count`,
 `sum`, `avg`, `min`, `max`) with `group_by` need SDK 0.3.0 or later.
 
+Field names must be the dataset's own, exactly as the registry has them.
+`client.schema("users")` lists them, with what a query for each would get (allowed,
+masked, or needing approval and from whom). A field the dataset doesn't have is
+refused with a `ValidationError` naming the valid fields.
+
 **As LLM agent tools:** the [`agent_openai_demo.py`](https://github.com/vaultkit-inc/vaultkit-sdk-python/blob/main/examples/agent_openai_demo.py)
 example has an agent discover datasets first, only query what discovery returned, and
 wait for approvals.
@@ -193,7 +198,7 @@ Install the SDK with the `mcp` extra (Python 3.10+), in a virtual environment:
 ```bash
 python3 -m venv vaultkit-env
 source vaultkit-env/bin/activate
-pip install "vaultkit[mcp]>=0.3.0"
+pip install "vaultkit[mcp]>=0.5.0"
 ```
 
 The MCP server reads its settings from the environment:
@@ -209,6 +214,9 @@ It waits silently for an MCP host (Claude Code, Claude Desktop, Cursor, MCP Insp
 to connect; that isn't a hang. To connect a host, see the
 [MCP Usage Guide](mcp_usage.md).
 
+The agent gets four tools. It calls `vaultkit_describe` on a dataset before querying
+it, so it uses the real field names instead of guessing them.
+
 ---
 
 ## 9. Handle an approval-required query
@@ -223,6 +231,7 @@ try:
                    purpose="Investigate failed refunds for INC-123")
 except ApprovalRequiredError as e:
     print(f"Approval required. Request ID: {e.request_id}")
+    print(e.approval_progress)  # "Needs 2 approvals: finance_manager waiting, security waiting"
 ```
 
 An approver in the right group signs off in the console under **Approvals**, or with
@@ -240,8 +249,10 @@ watch for new requests with `vkit approvals:watch`.
 Once it's approved, the agent runs **the same request again** and gets the rows: the
 approval issued a grant for exactly that query. An agent that wants to wait can
 check first with `client.poll_request(request_id=e.request_id)`, which reports
-`pending`, `granted` or `denied`. With the MCP server, the agent uses the
-`vaultkit_check_approval` tool. See [Approvals and grants](approvals_and_grants.md).
+`pending`, `granted` or `denied`, and while pending, `approval_progress` ("Needs 2
+approvals: finance_manager ✓ Ada, security waiting"). With the MCP server, the agent
+uses the `vaultkit_check_approval` tool, which returns the same wording. See
+[Approvals and grants](approvals_and_grants.md).
 
 ---
 
