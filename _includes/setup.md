@@ -43,7 +43,7 @@ Setup is done when `vkit doctor --format json` reports no failures.
 6. Scan the database, apply the scan, and export the registry.
 7. **ASK** the person to review the classifications, and apply their changes.
 8. Commit, then bundle, validate and deploy the policies.
-9. **ASK** the person to create the agent token, set the three environment variables and sign out. Then start a new setup session.
+9. **ASK** the person to create the agent token in the console and set the three environment variables.
 10. Configure the VaultKit MCP server for this client. **ASK** the person to restart you.
 11. Run `vkit doctor --format json` and fix what it reports.
 12. Tell the person what was set up, and run one safe query.
@@ -299,9 +299,9 @@ Errors:
 
 ### 9. Create the agent token
 
-You'll use an agent token to query VaultKit, and only the person may ever see it. A setup session can't create tokens, and the console can't create them yet. So the person signs in as themselves in their own terminal, creates the token, and signs out again. Then you start a new setup session.
+You'll use an agent token to query VaultKit, and only the person may ever see it. A setup session can't create tokens, so the person creates it in the console. Your `vkit` stays on the setup session throughout.
 
-Get the two values that aren't secret:
+Get the values that aren't secret:
 
 ```bash
 vkit whoami --format json
@@ -312,12 +312,25 @@ vkit whoami --format json
 **ASK** the person for:
 
 - a name for the agent token, such as `<project>-claude-code` or `<project>-cursor`;
-- the email of the person the agent acts for (usually theirs: suggest `result.email`). Its requests show up in their Activity;
-- how long the token should last, for example `30d` or `90d`. Formats are like `24h` or `30d`.
+- who the agent acts for: usually themselves. Its requests show up in that person's Activity;
+- how long the token should last: 1 hour, 24 hours, 30 days, or a custom number of hours or days.
 
-If any table in `datasets/registry.yaml` has a `tenant_column:` other than `false`, it's tenant-scoped. A token without a tenant can't read those tables at all, so also **ASK** which tenant the agent acts for, and add `--tenant <tenant>` to the command below.
+If any table in `datasets/registry.yaml` has a `tenant_column:` other than `false`, it's tenant-scoped. A token without a tenant can't read those tables at all, so also **ASK** which tenant the agent acts for.
 
-**ASK**: ask the person to open a separate terminal window that you can't see, on this computer, and run:
+**ASK**: ask the person to create the token in the console. The console is the site of the approval link from step 2 (`verification_url_complete`); the page is `/agents` there.
+
+1. Open the Agents page and click **Create agent token**.
+2. Fill in **Agent name** with the name they chose. Leave **Acts for** on themselves unless they chose someone else, and pick **Expires in**.
+3. If the org has tenant-scoped datasets, the dialog opens **Advanced** and warns that a token without a tenant can't read them. Enter the tenant there. Leave clearance and region unset unless they know their policies use them.
+4. Click **Create token**. The dialog shows the token once, and below it three `export` lines with `VAULTKIT_BASE_URL` and `VAULTKIT_ORG` filled in. Check with them that those two match `result.endpoint` and `result.organization` above.
+5. Copy the three lines into their shell profile (`~/.zshrc`, `~/.bashrc`) or their secret manager, and replace `<paste token>` with the copied token. Never put it in a `.env` file inside the repository, and never paste the token into this chat.
+6. Tick **I've saved the token**, then click **Done**.
+
+Warn them not to use `VKIT_TOKEN` or `VKIT_ENDPOINT` for the agent token. Those are read by the `vkit` CLI itself, so every `vkit` command would then run as the agent.
+
+Don't try to check the agent token. Your environment won't have it until step 10's restart.
+
+**If the Agents page has no Create agent token button,** the control plane is older and only the CLI can create tokens. Ask the person to run these in a separate terminal window that you can't see:
 
 ```bash
 vkit logout
@@ -326,42 +339,9 @@ vkit agents tokens create --name <name> --for <email> --expires-in <duration>
 vkit logout
 ```
 
-Explain each line:
+Add `--tenant <tenant>` when a tenant is needed. `tokens create` prints the token once; with `--secret-file <path outside this repository>` it's written to that file (mode 600) instead. The person sets the three variables as in step 5 above.
 
-- The first `vkit logout` ends the setup session.
-- `vkit login` signs them in as themselves, because only a person's login can create tokens.
-- `tokens create` prints the token once. It can't be shown again.
-  - They can add `--secret-file <path outside this repository>` to have it written to that file (mode 600) instead of printed.
-  - If vkit warns that the token has no tenant and some datasets are tenant-scoped, **ASK** whether they want a token for one tenant. If so, they revoke this one (`vkit agents tokens revoke --token <prefix> --reason "Replaced with a tenant token"`) and create it again with `--tenant <tenant>`.
-- The last `vkit logout` signs them out again. vkit keeps one login per computer, and your commands share it. If they stayed signed in, every `vkit` command you run would act as their full admin login for up to an hour, not as a setup session.
-
-Then ask them to put the three values where this agent client's environment gets them. That's their shell profile (`~/.zshrc`, `~/.bashrc`) or their secret manager, never a `.env` file inside the repository:
-
-```bash
-export VAULTKIT_BASE_URL=<VAULTKIT_BASE_URL>
-export VAULTKIT_ORG=<VAULTKIT_ORG>
-export VAULTKIT_TOKEN=<the token>   # or: export VAULTKIT_TOKEN="$(cat <path from --secret-file>)"
-```
-
-Warn them not to use `VKIT_TOKEN` or `VKIT_ENDPOINT` for the agent token. Those are read by the `vkit` CLI itself, so every `vkit` command would then run as the agent.
-
-If they report an error from their terminal:
-
-- `setup_scope_forbidden` from `tokens create`: they're still on the setup session. Ask them to run `vkit logout` and `vkit login` first.
-- `not_logged_in`: run `vkit login` first.
-- `secret_file_exists`: the file is already there. Ask them to pick another path, or delete the old file themselves.
-
-When they say it's done, check that they signed out:
-
-```bash
-vkit whoami --format json
-```
-
-It should return `not_logged_in`. If it shows them signed in, ask them to run `vkit logout`, and run no other `vkit` command until they have.
-
-Then start a new setup session: do step 2 again. Tell the person why they're asked to approve a second one. Step 11 still runs `vkit` (`vkit doctor`, and maybe a fix), and those commands should run on a token that can only set VaultKit up and ends in 30 minutes, not on their own login. Leave "Allow this session to replace existing policies and datasources" unticked.
-
-Don't try to check the agent token. Your environment won't have it until step 10's restart.
+The last `vkit logout` matters. vkit keeps one login per computer, shared with your commands, so while they're signed in, your `vkit` commands would act as their full admin login. When they're done, check that `vkit whoami --format json` returns `not_logged_in`. Then do step 2 again, and tell them why a second approval is needed: the rest of setup should run on a session that can only set VaultKit up and ends in 30 minutes, not on their own login.
 
 ### 10. Configure the MCP server
 

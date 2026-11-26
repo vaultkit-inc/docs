@@ -31,18 +31,9 @@ The agent does the setup. A few steps are yours, and it stops and asks at each o
 3. **Type the database password yourself.** The agent writes out a `vkit datasource add … --password-prompt` command for you to run in your own terminal. The password goes from your keyboard to VaultKit.
 4. **Choose policy packs.** `starter` is always installed. The agent explains `ai_safety` and `financial_compliance`, and you decide.
 5. **Review the classifications.** The agent shows you a table of columns that VaultKit couldn't classify, or that hold personal, financial or credential data. It changes only the labels you ask it to. Columns nobody has reviewed stay masked for agents until someone does.
-6. **Create the agent token**, in a terminal window the agent can't see:
-
-   ```bash
-   vkit logout
-   vkit login --endpoint <control plane URL>
-   vkit agents tokens create --name <agent name> --for <your email> --expires-in 30d
-   vkit logout
-   ```
-
-   The last `vkit logout` matters. `vkit` keeps one login per computer, and the agent's commands use it too, so if you stayed signed in, the agent would act as your full admin login. The agent then asks you to approve a second setup session for the rest of setup.
-
-   Then put it in your shell profile or secret manager as `VAULTKIT_TOKEN`, with `VAULTKIT_BASE_URL` and `VAULTKIT_ORG`. Never put it in a `.env` file in the repository, and never put it in `VKIT_TOKEN`: the `vkit` CLI reads that, so `vkit` itself would act as the agent.
+6. **Create the agent token** on the console's Agents page: click **Create agent token**, give it the name the agent suggests, and pick an expiry. Set a tenant under Advanced if the dialog asks for one. The dialog shows the token once, with three `export` lines (`VAULTKIT_TOKEN`, `VAULTKIT_BASE_URL`, `VAULTKIT_ORG`) to put in your shell profile or secret manager.
+   - Never put it in a `.env` file in the repository, never paste it into the agent's chat, and never put it in `VKIT_TOKEN`: the `vkit` CLI reads that, so `vkit` itself would act as the agent.
+   - On an older control plane without that button, you create it with `vkit agents tokens create` in your own terminal instead, sign out with `vkit logout`, and approve a second setup session. The agent walks you through it.
 7. **Restart the agent** from a new terminal, so it picks up the variables and the MCP server, and paste the prompt again. It carries on where it stopped.
 
 ## When it's done
