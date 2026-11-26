@@ -1,0 +1,9 @@
+---
+# Publishes _includes/setup.md unchanged at /setup.md (raw markdown, not
+# rendered into a page). Edit _includes/setup.md, not this file. It has no
+# trailing newline, so the output is byte for byte the same as the include.
+permalink: /setup.md
+layout: null
+sitemap: false
+---
+{% include setup.md %}
