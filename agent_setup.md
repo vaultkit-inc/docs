@@ -37,7 +37,10 @@ The agent does the setup. A few steps are yours, and it stops and asks at each o
    vkit logout
    vkit login --endpoint <control plane URL>
    vkit agents tokens create --name <agent name> --for <your email> --expires-in 30d
+   vkit logout
    ```
+
+   The last `vkit logout` matters. `vkit` keeps one login per computer, and the agent's commands use it too, so if you stayed signed in, the agent would act as your full admin login. The agent then asks you to approve a second setup session for the rest of setup.
 
    Then put it in your shell profile or secret manager as `VAULTKIT_TOKEN`, with `VAULTKIT_BASE_URL` and `VAULTKIT_ORG`. Never put it in a `.env` file in the repository, and never put it in `VKIT_TOKEN`: the `vkit` CLI reads that, so `vkit` itself would act as the agent.
 7. **Restart the agent** from a new terminal, so it picks up the variables and the MCP server, and paste the prompt again. It carries on where it stopped.

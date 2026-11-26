@@ -6,7 +6,7 @@ You are setting up VaultKit for the person you're working with. Follow every ste
 
 VaultKit lets AI agents query a database through policies instead of holding database credentials. When you're done, the person has:
 
-- the `vkit` CLI (2.0.0 or later), signed in to their VaultKit control plane;
+- the `vkit` CLI (2.0.0 or later), on a setup session with their VaultKit control plane, never on the person's own login;
 - one datasource: their database, connected through a read-only role;
 - a policy project folder in git: the starter policy pack, any extra packs they chose, and a reviewed registry of their tables and columns;
 - that policy bundle deployed and active;
@@ -24,14 +24,14 @@ Setup is done when `vkit doctor --format json` reports no failures.
 - Your shell tool times out, so never run a command that waits without a limit. The only waiting command here is `vkit login --setup --wait`, and it always gets `--timeout 90`.
 - Each step lists the error codes it can return and what to do about each. These codes can come from any step:
   - `control_plane_unreachable`: check the control plane URL with the person (step 2), then rerun.
-  - `not_logged_in`: go back to step 2 (before step 9), or ask the person to run `vkit login` (after it).
+  - `not_logged_in`: go back to step 2.
   - `setup_session_expired`, `setup_session_revoked`, `setup_session_invalid`: the setup session has ended (it lasts 30 minutes). Do step 2 again, then rerun the command that failed.
   - `setup_approver_not_admin`: stop. Tell the person the admin who approved the session is no longer an admin, so an admin has to approve a new one (step 2).
   - `setup_scope_forbidden`: see "Setup sessions" in step 2.
-  - `session_expired` (after step 9, when vkit is signed in as the person): ask the person to run `vkit login` in their terminal, then rerun.
   - `invalid_arguments`: you got a flag wrong. Fix it (`vkit help <command>` lists them) and rerun.
 - On any error code not listed in this file, stop. Show the person `error.message` and `error.fix`, and ask what to do.
-- If setup was started before (for example, the person restarted you in step 10), first run `vkit doctor --format json` in the policy project folder. Tell the person what it shows, then continue from the first step that isn't done. Every step is safe to rerun.
+- Only run `vkit` on a setup session, never on the person's own login. vkit keeps one saved login per computer, shared by your commands and the person's terminal. Before your first `vkit` command after step 9, and whenever you resume, run `vkit whoami --format json`. If `result.setup_session` isn't there, run nothing else in vkit. If it shows the person signed in (`result.email` and no `setup_session`), ask them to run `vkit logout` in their terminal. Then do step 2.
+- If setup was started before (for example, the person restarted you in step 10), first check `vkit whoami` as the rule above says, then run `vkit doctor --format json` in the policy project folder. Tell the person what it shows, then continue from the first step that isn't done. Every step is safe to rerun.
 
 ## Checklist
 
@@ -43,7 +43,7 @@ Setup is done when `vkit doctor --format json` reports no failures.
 6. Scan the database, apply the scan, and export the registry.
 7. **ASK** the person to review the classifications, and apply their changes.
 8. Commit, then bundle, validate and deploy the policies.
-9. **ASK** the person to create the agent token and set the three environment variables.
+9. **ASK** the person to create the agent token, set the three environment variables and sign out. Then start a new setup session.
 10. Configure the VaultKit MCP server for this client. **ASK** the person to restart you.
 11. Run `vkit doctor --format json` and fix what it reports.
 12. Tell the person what was set up, and run one safe query.
@@ -91,7 +91,7 @@ vkit login --setup --wait --timeout 90 --format json
 ```
 
 - `status: ok` with `result.setup_session: true`: approved. `result.organization` is the organization's slug and `result.expires_at` is when the session ends.
-  - If `result.replaced_login` is present, vkit was signed in as the person before. Tell them this replaced that sign-in; they sign in again in step 9.
+  - If `result.replaced_login` is present, vkit was signed in as the person before. Tell them this replaced that sign-in.
 - `status: needs_input` with `setup_approval_required`: the person hasn't approved yet. Remind them, and run the same `--wait` command again.
 - `setup_session_denied`: ask the person whether they meant to deny it. If they want to try again, start this step over.
 - `setup_session_expired`: the code expired before anyone approved it (codes last 10 minutes). Start this step over to get a new code.
@@ -167,14 +167,19 @@ Rerunning the same command is safe: a datasource with the same id and settings r
 
 ### 4. Choose policy packs
 
-The starter pack is always installed. It never returns secrets, masks personal and high-sensitivity data, masks columns nobody has reviewed for agents, and sends high-sensitivity requests in production to a data owner for approval.
+Read each pack's description from vkit rather than describing the packs yourself:
 
-**ASK** whether to add either of these (one, both or neither):
+```bash
+vkit policy pack info starter --format json
+vkit policy pack info ai_safety --format json
+vkit policy pack info financial_compliance --format json
+```
 
-- `ai_safety`: agents need approval for personal and unreviewed data in production, for financial data read row by row in production, and for high-sensitivity data anywhere.
-- `financial_compliance`: a finance manager approves reading financial data row by row in production (totals and averages need no approval), and grants that include financial fields expire after 30 minutes.
+Each returns `result.description` (what the pack does) and `result.policies` (its policy ids). Ignore `next` here: step 5 installs the packs.
 
-If they want details, `vkit policy pack info <pack> --format json` lists each pack's policies in `result.policies`. Add only the packs they choose.
+The starter pack is always installed. Tell the person what it does, using its `result.description`.
+
+**ASK** whether to add `ai_safety`, `financial_compliance`, both or neither. For each one, give its `result.description`. If they want details, list its `result.policies`. Add only the packs they choose.
 
 ### 5. Create the policy project
 
@@ -285,16 +290,16 @@ Skip the commit if `git status --porcelain .` prints nothing.
 
 Errors:
 
-- `bundle_not_committed`: something in the policy folder isn't committed. Run the commit above, then bundle again. Never use `--allow-dirty`, even though `error.fix` mentions it.
+- `bundle_not_committed`: something in the policy folder isn't committed. Run the commit above, then bundle again. Never use `--allow-dirty`.
 - `bundle_not_versioned`: the folder isn't in a git repository with a commit. Go back to step 5.
 - `policy_invalid`, `bundle_invalid`: show the person the message. If it names `datasets/registry.yaml`, it's probably a value from step 7 (a sensitivity or category that isn't one of those listed there). Fix that edit with the person, commit, and bundle again. For anything else, stop. Don't edit the policies.
-- `bundle_version_exists`: if `result.state` is `"active"` and `result.conflicting_version` is the output of `git rev-parse HEAD`, this commit is already deployed and active, and the step is done. (A rebuilt bundle has a new checksum, so vkit can't tell it's the same one.) Otherwise, stop and tell the person. Never use `--version`.
+- `bundle_version_exists`: a bundle with this version (the commit) but other contents was already uploaded. Rebundling and redeploying the same commit isn't this error, it returns `result.already_deployed: true`. Stop, show the person `error.message`, and ask what to do. Never use `--version`.
 - `bundle_checksum_exists`: the same policies were already uploaded under another version, which the message names. If that version is active, the step is done. If not, tell the person that an admin can activate it in the console.
 - `setup_scope_forbidden`: see "Setup sessions" in step 2.
 
 ### 9. Create the agent token
 
-You'll use an agent token to query VaultKit, and only the person may ever see it. A setup session can't create tokens, so the person signs in as themselves first.
+You'll use an agent token to query VaultKit, and only the person may ever see it. A setup session can't create tokens, and the console can't create them yet. So the person signs in as themselves in their own terminal, creates the token, and signs out again. Then you start a new setup session.
 
 Get the two values that aren't secret:
 
@@ -318,15 +323,17 @@ If any table in `datasets/registry.yaml` has a `tenant_column:` other than `fals
 vkit logout
 vkit login --endpoint <VAULTKIT_BASE_URL>
 vkit agents tokens create --name <name> --for <email> --expires-in <duration>
+vkit logout
 ```
 
 Explain each line:
 
-- `vkit logout` ends the setup session, since the setup steps are done.
-- `vkit login` signs them in as themselves.
+- The first `vkit logout` ends the setup session.
+- `vkit login` signs them in as themselves, because only a person's login can create tokens.
 - `tokens create` prints the token once. It can't be shown again.
   - They can add `--secret-file <path outside this repository>` to have it written to that file (mode 600) instead of printed.
   - If vkit warns that the token has no tenant and some datasets are tenant-scoped, **ASK** whether they want a token for one tenant. If so, they revoke this one (`vkit agents tokens revoke --token <prefix> --reason "Replaced with a tenant token"`) and create it again with `--tenant <tenant>`.
+- The last `vkit logout` signs them out again. vkit keeps one login per computer, and your commands share it. If they stayed signed in, every `vkit` command you run would act as their full admin login for up to an hour, not as a setup session.
 
 Then ask them to put the three values where this agent client's environment gets them. That's their shell profile (`~/.zshrc`, `~/.bashrc`) or their secret manager, never a `.env` file inside the repository:
 
@@ -338,15 +345,23 @@ export VAULTKIT_TOKEN=<the token>   # or: export VAULTKIT_TOKEN="$(cat <path fro
 
 Warn them not to use `VKIT_TOKEN` or `VKIT_ENDPOINT` for the agent token. Those are read by the `vkit` CLI itself, so every `vkit` command would then run as the agent.
 
-From now on, the `vkit` commands you run act as the person. Run only the commands this file names.
-
 If they report an error from their terminal:
 
 - `setup_scope_forbidden` from `tokens create`: they're still on the setup session. Ask them to run `vkit logout` and `vkit login` first.
 - `not_logged_in`: run `vkit login` first.
 - `secret_file_exists`: the file is already there. Ask them to pick another path, or delete the old file themselves.
 
-Don't try to check the token. Your environment won't have it until step 10's restart.
+When they say it's done, check that they signed out:
+
+```bash
+vkit whoami --format json
+```
+
+It should return `not_logged_in`. If it shows them signed in, ask them to run `vkit logout`, and run no other `vkit` command until they have.
+
+Then start a new setup session: do step 2 again. Tell the person why they're asked to approve a second one. Step 11 still runs `vkit` (`vkit doctor`, and maybe a fix), and those commands should run on a token that can only set VaultKit up and ends in 30 minutes, not on their own login. Leave "Allow this session to replace existing policies and datasources" unticked.
+
+Don't try to check the agent token. Your environment won't have it until step 10's restart.
 
 ### 10. Configure the MCP server
 
@@ -418,11 +433,14 @@ Setup then resumes at step 11.
 
 ### 11. Check everything
 
-From the policy project folder:
+From the policy project folder, check that vkit is on a setup session, then run doctor:
 
 ```bash
+vkit whoami --format json
 vkit doctor --format json
 ```
+
+Run doctor only if `whoami` returns `result.setup_session`. If it doesn't, follow the rule about setup sessions under Rules, then come back here.
 
 `result.ok` is `true` and the command exits 0 when nothing failed. `result.summary` counts the checks by status, and each entry in `result.checks` has `name`, `status` (`pass`, `warn`, `fail` or `info`), `detail` and `fix`. `result.skipped` lists checks that didn't run because an earlier one failed.
 
@@ -433,7 +451,7 @@ Work through the `fail` checks in order:
   - `agent_token` "…aren't set": your environment doesn't have the variables. They weren't set, or you weren't restarted from a shell that has them (step 10).
   - `agent_token` "…is a person's login, not an agent token": `VAULTKIT_TOKEN` holds the wrong thing (step 9).
   - `login` "…signed in with an agent token…": `VKIT_TOKEN` is set to the agent token. Ask them to unset `VKIT_TOKEN` and `VKIT_ENDPOINT`.
-  - `login` expired: ask them to run `vkit login`.
+  - `login` expired: the setup session ended. Do step 2 again, then rerun doctor.
   - `mcp_server` skipped as not installed: go back to step 10.
 
 Tell the person about each `warn`. `datasource_role` always warns for now, because VaultKit can't check the role yet. Pass on each `info` too: an approval group with no members, whose requests org admins approve, or a check the control plane is too old to answer.
@@ -459,6 +477,10 @@ Then try one safe query with the MCP tools:
 
 Show the person the result. If the query needs approval or is denied, explain what the response says and don't retry. If the VaultKit tools aren't available in this session, say so and point the person back to step 10.
 
-Finally, tell them that `vkit` stays signed in as them for up to an hour. They can run `vkit logout` if they don't want that.
+Finally, end the setup session, since setup is done:
+
+```bash
+vkit logout --format json
+```
 
 Start with step 1 now. Tell the person what you're doing before each ASK step.
