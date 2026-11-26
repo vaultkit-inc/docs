@@ -17,6 +17,8 @@ one query, and everything is recorded.
 - [Upgrading VaultKit](deployment.md#updating-vaultkit): notes for each release
 - [Your First Agent Query](first_agent_query.md): from a running deployment to a
   policy-governed agent query
+- [Set Up VaultKit with a Coding Agent](agent_setup.md): paste one line into Claude
+  Code, Cursor or another agent, and it sets VaultKit up for you
 
 ## Concepts
 
