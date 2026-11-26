@@ -63,6 +63,8 @@ action:                            # REQUIRED: exactly one of these is true
   approver_role: <group>           # REQUIRED with require_approval: one group, or
   approver_roles: [<group>, ...]   # several groups (0.12.0-alpha, vkit 1.5.0), with
   approval_mode: all | any         # all (default): each signs off; any: one does
+                                   # Groups can't be admin, member, approver or
+                                   # agent: those are built-in roles (vkit 2.0.0)
   reason: <string>                 # REQUIRED with deny and require_approval
   ttl: "1h"                        # OPTIONAL: how long the grant lasts
 
@@ -178,7 +180,9 @@ plus financial data (the same two), or a high-sensitivity column (`data_owner` f
 Before relying on a pack:
 
 - **Create its approval groups** (`data_owner`, `security`, `finance_manager`) and
-  add people to them. Until then, only admins can approve.
+  add people to them. Until a group has an active member, org admins approve for it,
+  and `vkit policy deploy` warns about it. See
+  [Groups with no members](approvals_and_grants.md#groups-with-no-members).
 - **Review the registry labels.** The packs act on them, and a field labelled
   `low` that holds personal data isn't protected.
 - **Agents match `requester_role: agent`,** the default role for agent tokens.
@@ -192,7 +196,9 @@ each pack's policy ids, and `vkit policy deploy` and the control plane refuse
 a bundle that leaves one out. To get deleted files back, run
 `vkit policy pack upgrade <pack>`: it lists them and offers to restore them
 (`--restore` restores without asking). Every bundle prints how many policies
-each pack and the repo contribute.
+each pack and the repo contribute. Commit `.vkit/packs.yaml` with your policies:
+`vkit policy bundle` refuses uncommitted changes to it (see
+[Commit `.vkit/packs.yaml`](upgrading_vkit_2.md#commit-vkitpacksyaml)).
 
 ---
 

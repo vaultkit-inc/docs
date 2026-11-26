@@ -368,6 +368,9 @@ Pin all three images to the same version in `docker-compose.yml`, then pull and
 restart. Upgrading across several releases? Apply the notes for each version in
 between, newest first below.
 
+Upgrading the `vkit` CLI to 2.0.0? Its changes are in
+[Upgrading to vkit 2.0.0](upgrading_vkit_2.md). Upgrade the control plane first.
+
 ### Upgrading to 0.12.0-alpha
 
 Back up the database, then move to `0.12.0-alpha`: run

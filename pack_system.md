@@ -128,6 +128,11 @@ VaultKit records installed packs in:
 .vkit/packs.yaml
 ```
 
+Commit it. `vkit init` (vkit 2.0.0) writes a `.gitignore` that ignores the rest of
+`.vkit/` but keeps this file, and `vkit policy bundle` refuses to build while it has
+uncommitted changes. Projects from vkit 1.x ignore all of `.vkit/`; see
+[Commit `.vkit/packs.yaml`](upgrading_vkit_2.md#commit-vkitpacksyaml).
+
 Example:
 ```yaml
 format_version: v1
@@ -321,7 +326,10 @@ The Pack System follows:
 
 ---
 
-## 15. Shipped Packs (vkit 1.5.0)
+## 15. Shipped Packs (vkit 1.5.0 and 2.0.0)
+
+`vkit policy pack info <pack>` prints each pack's description (vkit 2.0.0; with
+`--format json`, `result.description`).
 
 | Pack | Version | Depends on | What it does |
 | --- | --- | --- | --- |

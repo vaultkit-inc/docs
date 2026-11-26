@@ -8,6 +8,15 @@ You've deployed VaultKit — now what? This page walks through everything betwee
 
 If you haven't deployed yet, start with the [Deployment Guide](deployment.md).
 
+**The recommended way:** let a coding agent do it. Paste one line into Claude Code,
+Cursor or another agent, and it runs these steps for you, asking you only for what it
+shouldn't handle: approving its setup session, typing the database password, reviewing
+the classifications and creating its token. See
+[Set Up VaultKit with a Coding Agent](agent_setup.md).
+
+The steps below are the same setup by hand. They need vkit 2.0.0 or later (see
+[Upgrading to vkit 2.0.0](upgrading_vkit_2.md)).
+
 ---
 
 ## 1. Authenticate the CLI
@@ -34,7 +43,7 @@ If you want a working policy pack immediately rather than writing one from scrat
 vkit init --dir . --with starter,ai_safety
 ```
 
-This creates a local project directory with starter policy packs already installed. Skip to [Step 4](#4-write-or-install-a-policy-pack) if you use this.
+This creates a local project directory with starter policy packs already installed, and runs `git init` if the folder isn't in a git repository yet (`--no-git` skips it). Its `.gitignore` keeps `.vkit/packs.yaml` tracked, so commit that file along with your policies. Skip to [Step 4](#4-write-or-install-a-policy-pack) if you use this.
 
 ---
 
@@ -47,11 +56,15 @@ vkit datasource add \
   --id users_db \
   --engine postgres \
   --username <db-user> \
-  --password <db-password> \
   --config <connection-config> \
   --region US \
-  --environment production
+  --environment production \
+  --password-prompt
 ```
+
+`--password-prompt` asks for the database password in your terminal, with echo off, so
+it never ends up in your shell history. In a script, use `--password-env VAR_NAME`
+instead. The old `--password` option still works, but it's deprecated.
 
 Confirm it's registered:
 
@@ -92,7 +105,9 @@ vkit policy pack info starter
 
 The packs send approvals to the groups `data_owner` (starter), `security`
 (ai_safety) and `finance_manager` (financial_compliance). Add people to those groups
-in the console (Team, Edit member); until then only admins can approve.
+in the console (Team, Edit member). Until a group has an active member, org admins
+approve its requests, and `vkit policy deploy` warns about it (see
+[Groups with no members](approvals_and_grants.md#groups-with-no-members)).
 
 Writing your own policies instead of using a pack is covered in the [Policy Schema Reference](policy_guide.md).
 
@@ -100,10 +115,10 @@ Writing your own policies instead of using a pack is covered in the [Policy Sche
 
 ## 5. Compile, validate, and deploy the policy bundle
 
-The bundle version is your git commit (`git rev-parse HEAD`), so commit your policies and registry **before** you bundle. `vkit policy bundle` doesn't check for uncommitted changes: it builds whatever is on disk and labels it with the last commit.
+The bundle version is your git commit (`git rev-parse HEAD`), so commit your policies, registry and `.vkit/packs.yaml` **before** you bundle. `vkit policy bundle` refuses to build while any of them has uncommitted changes (`bundle_not_committed`), and lists the files and the git commands to commit them.
 
 ```bash
-git add config/policies datasets
+git add config/policies datasets .vkit/packs.yaml
 git commit -m "Add starter policy pack"
 ```
 
@@ -115,9 +130,9 @@ vkit policy validate
 vkit policy deploy
 ```
 
-`bundle` compiles your YAML policies (plus the datasource registry) into a single JSON bundle, fingerprinted to your current commit. `validate` checks it before anything goes live. `deploy` activates it against your VaultKit control plane — pass `--activate false` if you want to deploy without immediately making it the active version.
+`bundle` compiles your YAML policies (plus the datasource registry) into a single JSON bundle, fingerprinted to your current commit. `validate` checks it before anything goes live. `deploy` activates it against your VaultKit control plane — pass `--no-activate` if you want to deploy without immediately making it the active version.
 
-If you change a policy afterward, you'll need to commit again before re-running `bundle`/`deploy` — the new commit becomes the new fingerprint.
+If you change a policy afterward, you'll need to commit again before re-running `bundle`/`deploy` — the new commit becomes the new fingerprint. Rebuilding and deploying a commit that's already active changes nothing (`already_deployed`).
 
 Full reference: [Policy Management](cli.md#policy-projects-and-bundles) · [Policy Pack Commands](cli.md#policy-packs)
 
@@ -125,15 +140,37 @@ Full reference: [Policy Management](cli.md#policy-projects-and-bundles) · [Poli
 
 ## 6. Create an agent identity
 
-Agents authenticate with their own tokens, separate from human users.
+Agents authenticate with their own tokens, separate from human users. Only admins
+create them.
+
+**In the console:** open **Agents**, click **Create agent token**, give it a name
+(such as `billing-bot`) and an expiry, and click **Create token**. The dialog shows
+the token once, with three lines to set where the agent runs:
 
 ```bash
-vkit agents tokens create --name billing-bot --expires-in 24h
+export VAULTKIT_TOKEN="<paste token>"
+export VAULTKIT_BASE_URL="https://your-vaultkit-url"
+export VAULTKIT_ORG="<your-org-slug>"
 ```
 
-This prints a token — save it, you'll pass it to the SDK next.
+Copy the token, tick **I've saved the token**, and click **Done**. See
+[Creating agent tokens](mcp_usage.md#creating-agent-tokens).
 
-With vkit 1.2.0 you can also fix what policies see for the token: `--clearance`
+**Or with the CLI:**
+
+```bash
+vkit agents tokens create --name billing-bot --expires-in 24h --secret-file ~/billing-bot.token
+```
+
+`--secret-file` writes the token to a new file (mode 600) instead of printing it.
+Without it, the token is printed once.
+
+Put the token in your shell profile or a secret manager, not in a `.env` file in a
+repository. Use `VAULTKIT_TOKEN`, not `VKIT_TOKEN`: `VKIT_TOKEN` overrides the `vkit`
+CLI's own login, so every `vkit` command would run as the agent.
+
+You can also fix what policies see for the token (in the console, under
+**Advanced**): `--clearance`
 (`low`, `medium`, `high`), `--region` (`EU`, `US`, `CA`, `APAC`), and `--tenant` for
 an assistant that serves several customers from shared tables. A token with
 `--tenant org_42` only ever reads `org_42`'s rows on datasets marked with
@@ -213,6 +250,11 @@ vaultkit-mcp
 It waits silently for an MCP host (Claude Code, Claude Desktop, Cursor, MCP Inspector)
 to connect; that isn't a hang. To connect a host, see the
 [MCP Usage Guide](mcp_usage.md).
+
+To check the whole setup, run `vkit doctor` from your policy project with the same
+three variables set. It checks the login, datasources, schema, active bundle,
+approval groups, agent token and MCP server, and says how to fix what fails. See
+[`vkit doctor`](cli.md#checking-a-setup-vkit-doctor).
 
 The agent gets four tools. It calls `vaultkit_describe` on a dataset before querying
 it, so it uses the real field names instead of guessing them.
