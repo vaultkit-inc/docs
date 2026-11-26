@@ -36,7 +36,7 @@ Setup is done when `vkit doctor --format json` reports no failures.
 ## Checklist
 
 1. Check Ruby 3.0+ and install or upgrade the vkit CLI to 2.0.0+.
-2. Start a setup session. **ASK** the person to approve it in the console.
+2. Start a setup session on the control plane URL from the prompt, or **ASK** the person to confirm the saved one. **ASK** them to approve the session in the console.
 3. **ASK** for the database details, then **ASK** the person to add the datasource with its password.
 4. **ASK** which policy packs to add to starter.
 5. Create the policy project folder with `vkit init`, and commit it.
@@ -70,13 +70,37 @@ vkit --version
 
 A setup session gives you a token for 30 minutes that can only do setup: add datasources, scan, export the registry and deploy policies. It acts for the admin who approves it, and the console's Activity page records it as "agent setup on behalf of <them>".
 
+First, work out which control plane to use. vkit may still have a control plane URL saved from earlier work (a staging or demo server, say), and without `--endpoint` it uses that one without asking.
+
+**The person's prompt gave a control plane URL** (for example "Control plane: https://vaultkit.example.com"). Always pass it, even if vkit already has a URL saved:
+
 ```bash
-vkit login --setup --format json
+vkit login --setup --endpoint <URL from the prompt> --format json
 ```
 
+- Check that `result.endpoint` is the URL from the prompt (a trailing `/` doesn't matter). If it isn't, stop and tell the person.
+- If it fails, don't try other URLs yourself (adding `/api`, switching between `http` and `https`, changing the port). Tell the person what happened, and **ASK** them for the right URL:
+  - `control_plane_unreachable`: nothing answered at that URL. `error.message` says why: unknown host, connection refused, or a TLS error.
+  - `not_found` or any other error code: something answered, but it isn't a VaultKit control plane.
+- Starting the request doesn't change vkit's saved login. Once the person approves it, the setup session replaces the saved login and its saved URL. From then on, a plain `vkit login` goes to this control plane too, and signing in to a different one takes `vkit login --endpoint <its URL>`.
+
+**The prompt gave no URL.** Find out whether vkit has one saved:
+
+```bash
+vkit doctor --format json
+```
+
+Look at the check in `result.checks` whose `name` is `control_plane` (ignore the other checks for now):
+
+- Its `detail` names a URL ("Reachable at <URL>." or "Couldn't reach the control plane at <URL>…"): vkit has that URL saved. **ASK**: "I'm about to connect to the VaultKit control plane at <URL>. Is that the right one?"
+  - If they say yes, run `vkit login --setup --format json`, and check that `result.endpoint` is that URL.
+  - If they give a different URL, use it as if it came in the prompt (above).
+- Its `detail` says "No control plane is configured": run `vkit login --setup --format json`. It returns `error.code: endpoint_required`. **ASK** the person for their VaultKit control plane URL: usually the address they open the VaultKit console at, which an admin can tell them. Then use it as if it came in the prompt (above).
+
+What `vkit login --setup` returns:
+
 - It exits 3 with `status: needs_input` and `error.code: setup_approval_required`. `result` has `user_code` (like `SSKG-0363`), `verification_url_complete` (the approval link), `expires_at` and `endpoint`. vkit also tries to open the link in a browser on this computer.
-- `error.code: endpoint_required`: vkit doesn't know the control plane. **ASK** the person for their VaultKit control plane URL (the address `vkit` and the API use, which an admin can tell them). Then rerun with `--endpoint <url>`.
-- Rerunning this command while the code is still valid returns the same code. It never creates a second request.
+- Rerunning the same command while the code is still valid returns the same code. It never creates a second request. A different `--endpoint` starts a new request on that control plane.
 
 **ASK**: tell the person:
 
@@ -91,7 +115,7 @@ vkit login --setup --wait --timeout 90 --format json
 ```
 
 - `status: ok` with `result.setup_session: true`: approved. `result.organization` is the organization's slug and `result.expires_at` is when the session ends.
-  - If `result.replaced_login` is present, vkit was signed in as the person before. Tell them this replaced that sign-in.
+  - If `result.replaced_login` is present, vkit was signed in as the person before. Tell them this replaced that sign-in, and that from now on a plain `vkit login` signs in to `result.endpoint`. To sign in to a different control plane, they run `vkit login --endpoint <its URL>`.
 - `status: needs_input` with `setup_approval_required`: the person hasn't approved yet. Remind them, and run the same `--wait` command again.
 - `setup_session_denied`: ask the person whether they meant to deny it. If they want to try again, start this step over.
 - `setup_session_expired`: the code expired before anyone approved it (codes last 10 minutes). Start this step over to get a new code.

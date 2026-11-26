@@ -372,6 +372,36 @@ Upgrading the `vkit` CLI to 2.0.0? Its changes are in
 [Upgrading to vkit 2.0.0](upgrading_vkit_2.md). Upgrade the control plane to
 0.13.0-alpha first.
 
+### Upgrading to 0.14.0-alpha
+
+Back up the database, then move to `0.14.0-alpha`: run
+`./scripts/install.sh --version 0.14.0-alpha` in the deploy repository, then pull and
+restart. With your own compose file, update all three image tags. Only the console
+changed, but keep all three on the same version. There are no database migrations, and
+vkit 2.0.0 and the Python SDK 0.5.0 stay as they are.
+
+1. **Set up with your agent.** While an org has no datasource or no active policy
+   bundle, admins see a **Set up with your agent** card on Overview. It has a prompt to
+   paste into Claude Code, Cursor or another coding agent:
+   `Set up VaultKit for this project by following https://docs.vaultkit.io/setup.md. Control plane: <URL>`.
+   The agent then runs setup through a setup session that the admin approves. Once the
+   org is set up, the card becomes a smaller **Set up again with your agent** link.
+   Members see neither. See
+   [Set Up VaultKit with a Coding Agent](agent_setup.md).
+   - The URL is the address the console was opened at (or `VITE_API_BASE_URL` if the
+     console image was built with one). The console proxies the API, so this is the
+     URL vkit uses. Make sure people open the console at `APP_HOST`, its public
+     address.
+2. **The Create agent token dialog is easier to use.**
+   - The tenant warning gives a count of tenant-scoped datasets with a **Show list**
+     toggle, and goes away once a tenant is entered. The Tenant field explains what
+     value it takes.
+   - Cancel and Create token stay visible while the form scrolls.
+   - After creating a token, **Copy with token** copies the three `export` lines with
+     the token filled in. The block on screen still shows `<paste token>`.
+   - The summary always shows the tenant, with a warning when there is none and the org
+     has tenant-scoped datasets. The expiry shows the date and time.
+
 ### Upgrading to 0.13.0-alpha
 
 Back up the database, then move to `0.13.0-alpha`: run
