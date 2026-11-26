@@ -2,11 +2,33 @@
 
 A coding agent (Claude Code, Cursor or another) can set VaultKit up for you. It installs `vkit`, connects your database, installs and deploys policies, and configures VaultKit's MCP server so it can query your data through VaultKit. It never sees your database password or the agent token.
 
+## Start from the console
+
+The easiest way to start is from your VaultKit console:
+
+1. Sign in to the console as an admin and open **Overview**.
+2. In the **Set up with your agent** card, click **Copy prompt**.
+3. Open your agent in the project you want it to query from, and paste the prompt.
+
+The prompt names your control plane, so the agent connects to the right one even if `vkit` was used with another control plane before:
+
+```text
+Set up VaultKit for this project by following https://docs.vaultkit.io/setup.md. Control plane: https://vaultkit.example.com
+```
+
+The card shows until your organization has a datasource and an active policy bundle. After that, Overview has a smaller **Set up again with your agent** link that opens the same card. Members don't see either.
+
+## Start without the console
+
 Paste this into your agent, in the project you want it to query from:
 
 ```text
 Set up VaultKit for this project by following https://docs.vaultkit.io/setup.md
 ```
+
+The agent asks for your control plane URL, or, if `vkit` already has one saved, checks with you that it's the right one before it connects. You can also add `Control plane: <URL>` to the end of the prompt yourself. The URL is usually the address you open the VaultKit console at.
+
+## How it works
 
 [setup.md](https://docs.vaultkit.io/setup.md) is written for the agent: a checklist, the exact commands, what their `--format json` output looks like, and what to do for each error. It's served as plain markdown so an agent can read it as it is.
 
@@ -53,6 +75,7 @@ You end up with:
 
 ## If something goes wrong
 
+- **The control plane URL doesn't work.** If nothing answers at the URL, or what answers isn't VaultKit, the agent says so and asks you for the right one. It doesn't guess.
 - **The code expired.** Approval codes last 10 minutes. The agent asks for a new one.
 - **The setup session expired part way.** Setup sessions last 30 minutes. The agent starts a new one, and every step is safe to rerun.
 - **`setup_scope_forbidden`.** Either the step needs an admin signed in normally, or your organization was already set up and the session wasn't allowed to replace it. The agent tells you which one, and what you can do.
