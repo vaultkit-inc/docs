@@ -1,6 +1,7 @@
 # VaultKit CLI (`vkit`)
 
-**Applies to:** vkit 2.0.0. Setup sessions need a control plane that has them (see
+**Applies to:** vkit 2.0.0 with VaultKit 0.13.0-alpha. Setup sessions need
+0.13.0-alpha or later (see
 [Upgrading to vkit 2.0.0](upgrading_vkit_2.md#control-plane-version)).
 
 `vkit` is the command-line client for VaultKit. People use it to request governed

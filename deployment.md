@@ -369,7 +369,8 @@ restart. Upgrading across several releases? Apply the notes for each version in
 between, newest first below.
 
 Upgrading the `vkit` CLI to 2.0.0? Its changes are in
-[Upgrading to vkit 2.0.0](upgrading_vkit_2.md). Upgrade the control plane first.
+[Upgrading to vkit 2.0.0](upgrading_vkit_2.md). Upgrade the control plane to
+0.13.0-alpha first.
 
 ### Upgrading to 0.12.0-alpha
 

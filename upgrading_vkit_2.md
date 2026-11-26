@@ -203,17 +203,16 @@ These don't break anything, but you may notice them:
 
 ## Control plane version
 
-These need a control plane built after 0.12.0-alpha, from the release that ships
-with vkit 2.0.0. With a 0.12.0-alpha control plane, vkit 2.0.0 falls back where it
-can:
+These need VaultKit 0.13.0-alpha, the control plane release that ships with vkit
+2.0.0. With a 0.12.0-alpha control plane, vkit 2.0.0 falls back where it can:
 
 | Feature | Needs | On 0.12.0-alpha |
 | --- | --- | --- |
-| Setup sessions (`vkit login --setup`) | vaultkit-inc/vaultkit#126 | Not available. |
-| Creating agent tokens in the console | vaultkit-inc/vaultkit#128 | Use `vkit agents tokens create`. |
-| Deploying an `--allow-dirty` bundle | vaultkit-inc/vaultkit#124 | Refused with `422`. Commit, and bundle without it. |
-| Org admins approving for groups with no members, and deploy warnings from the control plane | vaultkit-inc/vaultkit#122, #127 | vkit works out the warnings itself from the group list. `vkit doctor`'s approval routing check reports that the control plane is too old. |
-| Reruns answered by the control plane (`already_existed` on deploy and datasource add) | vaultkit-inc/vaultkit#126 | vkit works it out from the active bundle and the datasource list. |
+| Setup sessions (`vkit login --setup`) | 0.13.0-alpha | Not available. |
+| Creating agent tokens in the console | 0.13.0-alpha | Use `vkit agents tokens create`. |
+| Deploying an `--allow-dirty` bundle | 0.13.0-alpha | Refused with `422`. Commit, and bundle without it. |
+| Org admins approving for groups with no members, and deploy warnings from the control plane | 0.13.0-alpha | vkit works out the warnings itself from the group list. `vkit doctor`'s approval routing check reports that the control plane is too old. |
+| Reruns answered by the control plane (`already_existed` on deploy and datasource add) | 0.13.0-alpha | vkit works it out from the active bundle and the datasource list. |
 
-Upgrade the control plane first, then vkit. See
+Upgrade the control plane to 0.13.0-alpha first, then vkit. See
 [Updating VaultKit](deployment.md#updating-vaultkit).

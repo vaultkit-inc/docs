@@ -292,7 +292,7 @@ what a policy decides, and rewording it doesn't trigger a new approval.
 
 Only admins create agent tokens. The console is the easiest way; `vkit` does the same.
 
-**In the console** (needs a control plane with vaultkit-inc/vaultkit#128; see
+**In the console** (needs VaultKit 0.13.0-alpha or later; see
 [Control plane version](upgrading_vkit_2.md#control-plane-version)):
 
 1. Open **Agents** and click **Create agent token**.

@@ -1,7 +1,7 @@
 # Approvals and Grants
 
-**Applies to:** VaultKit 0.12.0-alpha, and the control plane that ships with vkit 2.0.0
-(admin fallback and self-approvals, below)
+**Applies to:** VaultKit 0.13.0-alpha (the admin fallback for groups with no members
+and recorded self-approvals are new in 0.13.0-alpha)
 
 Nobody in VaultKit holds standing access to data. Every request is checked against
 your policies, and if it's allowed, VaultKit issues a **grant**: permission to run that

@@ -1,6 +1,6 @@
 # Setup Sessions
 
-**Applies to:** vkit 2.0.0, with a control plane that has setup sessions (see
+**Applies to:** vkit 2.0.0 with VaultKit 0.13.0-alpha or later (see
 [Upgrading to vkit 2.0.0](upgrading_vkit_2.md#control-plane-version))
 
 A setup session lets a coding agent set VaultKit up for you without ever holding your
