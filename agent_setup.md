@@ -4,7 +4,7 @@ A coding agent (Claude Code, Cursor or another) can set VaultKit up for you. It 
 
 ## Start from the console
 
-The easiest way to start is from your VaultKit console:
+The easiest way to start is from your VaultKit console (control plane 0.14.0-alpha or later):
 
 1. Sign in to the console as an admin and open **Overview**.
 2. In the **Set up with your agent** card, click **Copy prompt**.
