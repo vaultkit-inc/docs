@@ -1,6 +1,7 @@
 # Approvals and Grants
 
-**Applies to:** VaultKit 0.12.0-alpha
+**Applies to:** VaultKit 0.13.0-alpha (the admin fallback for groups with no members
+and recorded self-approvals are new in 0.13.0-alpha)
 
 Nobody in VaultKit holds standing access to data. Every request is checked against
 your policies, and if it's allowed, VaultKit issues a **grant**: permission to run that
@@ -55,8 +56,17 @@ action:
   console under **Team** (Edit member, Approval groups).
 - **Admins and approve-any users:** members who are set to "Can approve any request"
   can sign off for any group.
+- **Org admins, for groups nobody is in.** See
+  [Groups with no members](#groups-with-no-members).
 - **Never the requester:** nobody can approve or deny their own request, admins
   included.
+- **An agent's requests are different.** The person an agent token acts for (its
+  `--for`, or **Acts for** in the console) can approve that agent's requests. This is
+  allowed, and recorded as a self-approval: the console shows "acting for you" on the
+  request and says approving it is recorded as a self-approval, the approval and the
+  sign-off carry `self_approval: true` in the API, and the audit events include it.
+- **Built-in roles aren't groups.** `admin`, `member`, `approver` and `agent` can't be
+  approval groups: a policy can't name them, and a person can't be put in them.
 
 **Several policies, several groups:**
 
@@ -64,12 +74,37 @@ action:
   approval, each keeps its own groups and mode, and the request needs them all.
 - **One group per person.** Each sign-off comes from a different person and counts
   for one group only, even if that person is in several. An admin can't satisfy
-  every group alone.
+  every group alone, except the groups nobody is in (below).
 - **Which group a sign-off counts for:** a person in several groups signs for the
   one that meets the most open requirements. For example, with `financial_compliance`
   asking a `finance_manager` and `ai_safety` asking `security` or a `finance_manager`,
   one finance sign-off approves the request.
 - **TTL:** the shortest among the matched policies applies.
+
+### Groups with no members
+
+A group nobody active is in falls back to org admins:
+
+- **Deploying** a bundle that names one still succeeds. `vkit policy deploy` warns
+  once per group: "data_owner has no members, so org admins will approve its requests
+  until someone is added." `vkit doctor` reports it too.
+- **The agent is told.** The `202` for a queued request says "Needs approval:
+  data_owner has no members, so an org admin will approve.", and
+  `admin_fallback_groups` lists those groups.
+- **One admin's approval signs every group the request needs that has no members.**
+  So a rule needing two empty groups, like `ai_safety`'s `security` and
+  `finance_manager` rule, needs one admin. A group with members still needs one of
+  its members, and the admin still counts for only one such group.
+- **With `approval_mode: any`,** the admin signs for the set only when every group in
+  it has no members. If one of them has a member, that member (or another group's)
+  signs.
+- **Add people to the group** in the console (Team, Edit member) to stop the
+  fallback.
+
+Users who can approve any request still sign for one group at a time, whether it has
+members or not. Only admins sign for the built-in `admin` role, which an approval
+policy with no approver falls back to (only bundles from before approvers were
+required have such policies).
 
 **Progress** reads the same in the console's Approvals page, the approvals API
 (`progress`), `GET /requests/:id` (`approval_progress`) and the agent's
@@ -134,3 +169,18 @@ tenant, the environment and the decision. Events include `request.received`,
 `policy.evaluated`, `request.rejected`, `request.denied`, `request.queued_for_approval`,
 `approval.signed_off`, `approval.approved`, `approval.denied`, `grant.issued`,
 `grant.reused`, `grant.fetch.executed` and `grant.revoked`.
+
+Approval events say how each sign-off was made:
+
+- `approver_source`: `group` for a member of the group, `admin_fallback` for an admin
+  signing for groups with no members. `signed_roles` lists the groups the sign-off
+  covered.
+- `admin_fallback_groups` on `request.queued_for_approval`: the groups admins will
+  approve for.
+- `self_approval: true` when the approver is the person the requesting agent acts for.
+  The key is left out for every other approval.
+
+```json
+{"event": "approval.approved", "approval_id": 1, "dataset": "customers",
+ "signed_roles": ["data_owner"], "approver_source": "admin_fallback", "self_approval": true}
+```

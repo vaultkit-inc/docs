@@ -34,6 +34,7 @@ nothing itself.
    VAULTKIT_TOKEN      the agent/principal token
    VAULTKIT_ORG        e.g. demolabs
    ```
+   An admin creates the token. See [Creating agent tokens](#creating-agent-tokens).
 
 ---
 
@@ -287,6 +288,60 @@ allowed over a masked field.
 The `purpose` is recorded with the request and shown to approvers. It doesn't change
 what a policy decides, and rewording it doesn't trigger a new approval.
 
+## Creating agent tokens
+
+Only admins create agent tokens. The console is the easiest way; `vkit` does the same.
+
+**In the console** (needs VaultKit 0.13.0-alpha or later; see
+[Control plane version](upgrading_vkit_2.md#control-plane-version)):
+
+1. Open **Agents** and click **Create agent token**.
+2. Fill in:
+   - **Agent name** (required). Tokens with the same name show as one agent.
+   - **Label** (optional), such as "Ada's laptop".
+   - **Acts for**: you by default, or another active member. The agent's requests
+     show in that person's Activity.
+   - **Expires in**: 1 hour, 24 hours, 30 days, or a custom number of hours or days.
+   - **Advanced**: tenant, clearance and region, which are fixed once the token is
+     created. If the org has tenant-scoped datasets and you set no tenant, the dialog
+     warns that the token can't read them, and lists them.
+3. Click **Create token**. The token is shown **once**, with a Copy button, and
+   "Set these where your agent runs":
+
+   ```bash
+   export VAULTKIT_TOKEN="<paste token>"
+   export VAULTKIT_BASE_URL="https://vaultkit.example.com"
+   export VAULTKIT_ORG="acme"
+   ```
+
+   **Copy variables** copies those three lines, with a placeholder for the token,
+   which you paste in yourself.
+4. Tick **I've saved the token**, then **Done**. Until you tick it, the dialog won't
+   close: closing discards the token, and it can't be shown again.
+
+**With the CLI:**
+
+```bash
+vkit agents tokens create --name support-assistant --for ada@example.com \
+  --expires-in 30d --secret-file ~/.config/vaultkit/support-assistant.token
+```
+
+`--secret-file` writes the token to a new file with mode 600 instead of printing it.
+Without it, the token is printed once. A setup session (`vkit login --setup`) can't
+create tokens: sign in as yourself first. All the options are in
+[Agent tokens](cli.md#agent-tokens).
+
+**Where to put it.** Set the three variables where the agent runs: your shell
+profile, a secret manager, or the MCP host's server config (its `env` block). Not a
+`.env` file in a repository, and not the agent's chat. Anything in a chat can end up
+in logs and transcripts.
+
+**`VAULTKIT_TOKEN`, not `VKIT_TOKEN`.** The MCP server and the SDK read
+`VAULTKIT_TOKEN`. `VKIT_TOKEN` (with `VKIT_ENDPOINT`) overrides the `vkit` CLI's own
+login, so an agent token there makes every `vkit` command run as the agent.
+`vkit doctor` checks both: it fails when `VKIT_TOKEN` holds an agent token, and its
+`agent_token` check confirms the three `VAULTKIT_*` variables work together.
+
 ## Settings
 
 | Variable | Default | Meaning |
@@ -301,8 +356,8 @@ what a policy decides, and rewording it doesn't trigger a new approval.
 
 ## What the token decides
 
-Everything an agent can see comes from its token, set by an admin with
-`vkit agents tokens create`:
+Everything an agent can see comes from its token, set by an admin when it's
+[created](#creating-agent-tokens):
 
 - **Clearance and region** are the token's. Region or clearance values sent by the
   agent are ignored.

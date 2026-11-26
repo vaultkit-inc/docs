@@ -15,6 +15,8 @@ one query, and everything is recorded.
   today
 - [Deployment Guide](deployment.md): run VaultKit with Docker Compose
 - [Upgrading VaultKit](deployment.md#updating-vaultkit): notes for each release
+- [Upgrading to vkit 2.0.0](upgrading_vkit_2.md): what changed in the CLI, and what to
+  do about it
 - [Your First Agent Query](first_agent_query.md): from a running deployment to a
   policy-governed agent query
 - [Set Up VaultKit with a Coding Agent](agent_setup.md): paste one line into Claude
@@ -28,6 +30,8 @@ one query, and everything is recorded.
 - [Approvals and Grants](approvals_and_grants.md): who signs off, how long access
   lasts, reuse and revocation
 - [Schema Discovery](schema_discovery.md): the registry, scan labels, reviewing them
+- [Setup Sessions](setup_sessions.md): a short-lived token that lets a coding agent set
+  VaultKit up for you, and what you approve
 - [Tenant-Scoped Datasets](policy_guide.md#tenant-scoped-datasets): confine agents to
   one customer's rows in shared tables
 - [AQL Specification](aql_specification.md): the query format, including the intent
@@ -36,7 +40,10 @@ one query, and everything is recorded.
 ## Reference
 
 - [CLI (`vkit`)](cli.md): every command and option
-- [Agent Tokens](cli.md#agent-tokens): issue tokens with a tenant, clearance and region
+- [Agent Tokens](mcp_usage.md#creating-agent-tokens): create them in the console or
+  with `vkit`, with a tenant, clearance and region
+- [`vkit doctor`](cli.md#checking-a-setup-vkit-doctor): check a whole setup in one
+  command
 - [MCP Usage Guide](mcp_usage.md): connect Claude Code, Claude Desktop, Cursor or
   another MCP host
 

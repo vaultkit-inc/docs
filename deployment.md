@@ -368,6 +368,89 @@ Pin all three images to the same version in `docker-compose.yml`, then pull and
 restart. Upgrading across several releases? Apply the notes for each version in
 between, newest first below.
 
+Upgrading the `vkit` CLI to 2.0.0? Its changes are in
+[Upgrading to vkit 2.0.0](upgrading_vkit_2.md). Upgrade the control plane to
+0.13.0-alpha first.
+
+### Upgrading to 0.13.0-alpha
+
+Back up the database, then move to `0.13.0-alpha`: run
+`./scripts/install.sh --version 0.13.0-alpha` in the deploy repository, then pull and
+restart. With your own compose file, update all three image tags instead. funl didn't
+change in this release, but keep all three on the same version. **Upgrade vkit to
+2.0.0 as well.** It's a major release: see
+[Upgrading to vkit 2.0.0](upgrading_vkit_2.md). The Python
+SDK stays at 0.5.0.
+
+Upgrade the control plane before vkit. vkit 2.0.0's `vkit login --setup` needs setup
+sessions (item 3), and its `--allow-dirty` bundles need item 4.
+
+**Six database migrations** run when the control plane starts:
+- Reserved names are removed from users' `approval_groups` (item 1). The migration
+  logs each user it changes, and doesn't put the names back on rollback.
+- `self_approval` on `policy_approvals`.
+- `source_dirty` on `policy_bundle_versions`. Existing bundles count as clean.
+- `setup_sessions`; a `setup_session` reference on `policy_bundle_versions`;
+  `allow_replace` on `setup_sessions`.
+
+1. **Built-in role names can't be approval groups.** This is a security fix. A
+   `require_approval` policy with no approver falls back to admins, and a member whose
+   approval groups included `admin` could approve those requests as if they were an
+   admin.
+   - `admin`, `member`, `approver` and `agent` are reserved. Creating or updating a
+     user with one of them in `approval_groups` returns `422`, and so does uploading a
+     bundle whose `approver_role` or `approver_roles` names one.
+   - Only admins sign the admin fallback, whatever groups they're in. Approve-any users
+     no longer can.
+   - The migration removes the reserved names from existing users and keeps their
+     other groups. Bundles already active keep working: a policy there that names
+     `admin` is signed by admins only.
+   - Rename any group your policies call `member`, `approver` or `agent` before
+     redeploying them.
+2. **Approvals for groups with no members go to org admins.** Before, a request routed
+   to a group nobody was in could only be approved by admins, one group per admin, so a
+   rule needing two empty groups never finished in an org with one admin.
+   - One admin's approval now signs every outstanding group the request needs that has
+     no active members, recorded with `approver_source: "admin_fallback"`. A group that
+     has members still needs one of them.
+   - `POST /policy_bundles` returns `warnings`, one per group named by a policy that
+     has no members (`approval_group_has_no_members`). The bundle is still accepted.
+     vkit 2.0.0 prints them.
+   - The agent's `202` says an org admin will approve (`admin_fallback_groups`,
+     `message`).
+   - `GET /approval_groups` lists groups from `approver_roles` as well as
+     `approver_role`, and adds `active_member_count` and `admin_fallback` per group.
+     `vkit doctor` reads them.
+   - Audit: `request.queued_for_approval` has `admin_fallback_groups`, and approval
+     events have `approver_source` (and `signed_roles` on sign-offs).
+   - Approving a request made by your own agent token is allowed and recorded:
+     `self_approval: true` on the approval, its sign-off and its audit events. The
+     console's Approvals page says "acting for you".
+3. **Setup sessions: a short-lived token for coding agents.** `vkit login --setup`
+   asks for a setup session, an admin approves it in the console at
+   `/setup/approve`, and the CLI gets a `vkit_setup_` token that lasts 30 minutes.
+   - It can only do setup: datasources, scans, the registry, policy bundles and reading
+     what's set up. Anything else gets `403 setup_scope_forbidden`. It can't create
+     agent tokens or approve requests.
+   - In an org that already has policies or datasources, it can't replace them unless
+     the admin ticks "Allow this session to replace existing policies and datasources"
+     when approving. Reruns that change nothing work either way.
+   - Admins can revoke a session from the console, and `vkit logout` ends it.
+   - The approval link uses `FRONTEND_BASE_URL`, so check that it points at the
+     console people actually open.
+   - Setup actions that change nothing now answer `200` with `already_existed`,
+     `already_active` or `unchanged` for everyone. A different datasource or bundle
+     under an existing name returns `409` (`datasource_exists`,
+     `bundle_version_exists`, `bundle_checksum_exists`).
+4. **Bundles built with uncommitted changes are accepted and recorded.**
+   `vkit policy bundle --allow-dirty` sets `source.dirty` in the bundle. It's stored
+   with the bundle and recorded as `dirty` on `policy_bundle.created` and
+   `policy_bundle.activated`. Before, these bundles got a `422`.
+5. **Admins can create agent tokens in the console.** The Agents page has a
+   **Create agent token** button. It uses the same endpoint and audit event as
+   `vkit agents tokens create`, shows the token once, and gives the `VAULTKIT_TOKEN`,
+   `VAULTKIT_BASE_URL` and `VAULTKIT_ORG` lines to set where the agent runs.
+
 ### Upgrading to 0.12.0-alpha
 
 Back up the database, then move to `0.12.0-alpha`: run
